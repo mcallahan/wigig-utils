@@ -58,6 +58,14 @@ module_param(ignore_reg_hints, bool, 0444);
 MODULE_PARM_DESC(ignore_reg_hints,
 		 " Ignore OTA regulatory hints (Default: true)");
 
+uint scan_dwell_time  = WMI_SCAN_DWELL_TIME_MS;
+module_param(scan_dwell_time, uint, 0644);
+MODULE_PARM_DESC(scan_dwell_time, " Scan dwell time (msec)");
+
+uint scan_timeout = WIL6210_SCAN_TO_SEC;
+module_param(scan_timeout, uint, 0644);
+MODULE_PARM_DESC(scan_timeout, " Scan timeout (seconds)");
+
 #define CHAN60G(_channel, _flags) {				\
 	.band			= NL80211_BAND_60GHZ,		\
 	.center_freq		= 56160 + (2160 * (_channel)),	\
@@ -1187,8 +1195,9 @@ static int wil_cfg80211_scan(struct wiphy *wiphy,
 
 	(void)wil_p2p_stop_discovery(vif);
 
-	wil_dbg_misc(wil, "Start scan_request 0x%p\n", request);
-	wil_dbg_misc(wil, "SSID count: %d", request->n_ssids);
+	wil_dbg_misc(wil,
+		     "Start scan_request 0x%p, dwell_time %dms, timeout %dsec, SSID count %d\n",
+		     request, scan_dwell_time, scan_timeout, request->n_ssids);
 
 	for (i = 0; i < request->n_ssids; i++) {
 		wil_dbg_misc(wil, "SSID[%d]", i);
@@ -1209,10 +1218,12 @@ static int wil_cfg80211_scan(struct wiphy *wiphy,
 	}
 
 	vif->scan_request = request;
-	mod_timer(&vif->scan_timer, jiffies + WIL6210_SCAN_TO);
+	mod_timer(&vif->scan_timer,
+		  jiffies + msecs_to_jiffies(1000U * scan_timeout));
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cmd.scan_type = WMI_ACTIVE_SCAN;
+	cmd.cmd.dwell_time = cpu_to_le32(scan_dwell_time);
 	cmd.cmd.num_channels = 0;
 	n = min(request->n_channels, 4U);
 	for (i = 0; i < n; i++) {

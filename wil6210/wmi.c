@@ -24,6 +24,7 @@
 #include "wmi.h"
 #include "trace.h"
 #include "ftm.h"
+#include "slave_i.h"
 
 /* set the default max assoc sta to max supported by driver */
 uint max_assoc_sta = WIL6210_MAX_CID;
@@ -1435,6 +1436,14 @@ static void wmi_evt_per_dest_res(struct wil6210_vif *vif, int id,
 	wil_ftm_evt_per_dest_res(vif, evt);
 }
 
+static void wmi_evt_internal_fw_event(struct wil6210_vif *vif, int id,
+				      void *d, int len)
+{
+	struct wmi_internal_fw_event_event *evt = d;
+
+	wil_slave_evt_internal_fw_event(vif, evt, len);
+}
+
 static void
 wmi_evt_sched_scan_result(struct wil6210_vif *vif, int id, void *d, int len)
 {
@@ -1944,6 +1953,7 @@ static const struct {
 	{WMI_TOF_SET_LCI_EVENTID,		wmi_evt_ignore},
 	{WMI_TOF_FTM_PER_DEST_RES_EVENTID,	wmi_evt_per_dest_res},
 	{WMI_TOF_CHANNEL_INFO_EVENTID,		wmi_evt_ignore},
+	{WMI_INTERNAL_FW_EVENT_EVENTID,		wmi_evt_internal_fw_event},
 	{WMI_LINK_STATS_EVENTID,		wmi_evt_link_stats},
 	{WMI_FT_AUTH_STATUS_EVENTID,		wmi_evt_auth_status},
 	{WMI_FT_REASSOC_STATUS_EVENTID,		wmi_evt_reassoc_status},

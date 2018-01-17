@@ -45,6 +45,7 @@ extern bool use_rx_hw_reordering;
 extern bool use_compressed_rx_status;
 extern bool ac_queues;
 extern bool q_per_sta;
+extern u8 slave_mode;
 
 struct wil6210_priv;
 struct wil6210_vif;
@@ -1040,6 +1041,9 @@ struct wil6210_priv {
 
 	bool secured_boot;
 	u8 boot_config;
+
+	/* slave mode */
+	void *slave_ctx;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)

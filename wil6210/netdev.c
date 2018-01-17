@@ -23,6 +23,13 @@
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 #include <nss_api_if.h>
 #endif
+#include "slave_i.h"
+
+u8 slave_mode;
+module_param(slave_mode, byte, 0444);
+MODULE_PARM_DESC(slave_mode,
+		 " slave mode: 0=disabled,1=partial,2=full (default: 0)");
+
 bool ac_queues; /* = false; */
 module_param(ac_queues, bool, 0444);
 MODULE_PARM_DESC(ac_queues, " enable access category for transmit packets. default false");
@@ -628,6 +635,12 @@ int wil_if_add(struct wil6210_priv *wil)
 	rtnl_unlock();
 	if (rc < 0)
 		goto umac_unreg;
+	if (slave_mode) {
+		rc = wil_register_slave(wil);
+		if (rc)
+			wil_err(wil, "failed to register slave, err %d\n", rc);
+		/* continue even if failed */
+	}
 
 	return 0;
 
@@ -707,6 +720,9 @@ void wil_if_remove(struct wil6210_priv *wil)
 	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 
 	wil_dbg_misc(wil, "if_remove\n");
+
+	if (slave_mode)
+		wil_unregister_slave(wil);
 
 	rtnl_lock();
 	wil_vif_remove(wil, 0);

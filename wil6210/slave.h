@@ -1,0 +1,59 @@
+/*
+ * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ *
+ * Permission to use, copy, modify, and/or distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+#ifndef __WIL6210_SLAVE_H__
+#define __WIL6210_SLAVE_H__
+
+/* increment whenever changing wil_slave_ops or wil_slave_rops */
+#define WIL_SLAVE_API_VERSION	1
+
+/* these constants must be in sync with definition in wmi.h */
+#define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	236
+#define WIL_MAX_INTERNAL_EVENT_PAYLOAD_SIZE	236
+
+struct wil_slave_ops {
+	int api_version;
+	int (*ioctl)(void *dev, u16 code, u8 *req_buf, u16 req_len,
+		     u8 *resp_buf, u16 *resp_len);
+};
+
+struct wil_slave_rops {
+	void (*rx_event)(void *ctxt, u16 id, u8 *evt, u32 len);
+};
+
+/**
+ * wil_register_master - register a master driver
+ * @ifname: main interface name to identify wil6210 instance
+ * @ops: slave operations. See notes below.
+ * @rops: Callbacks to master driver, filled by caller.
+ * @ctx: master driver context. Pass to rops.
+ * @return slave context or error pointer.
+ *
+ * Caller should set api_version in ops structure for API
+ * compatibility check. On success, this function will fill
+ * the function pointers in ops and return a slave context
+ * that needs to be passed to all ops.
+ */
+void *wil_register_master(const char *ifname,
+			  struct wil_slave_ops *ops,
+			  const struct wil_slave_rops *rops, void *ctx);
+
+/**
+ * wil_unregister_master - unregister a master driver
+ * @dev - slave context
+ */
+void wil_unregister_master(void *dev);
+
+#endif /* __WIL6210_SLAVE_H__ */

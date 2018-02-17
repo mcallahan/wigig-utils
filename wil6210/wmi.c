@@ -1173,6 +1173,8 @@ static void wmi_evt_connect(struct wil6210_vif *vif, int id, void *d, int len)
 		atomic_inc(&wil->connected_vifs);
 	wil_update_cid_net_queues_bh(wil, vif, evt->cid, false);
 
+	if (slave_mode == 1)
+		wil_slave_evt_connect(vif, evt->bssid, evt->cid);
 out:
 	if (rc) {
 		wil->sta[evt->cid].status = wil_sta_unused;

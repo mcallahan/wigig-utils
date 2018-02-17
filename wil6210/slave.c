@@ -65,19 +65,45 @@ out:
 	return rc;
 }
 
+static void wil_slave_clear_master_ctx(struct wil_slave_entry *slave)
+{
+	struct wil6210_priv *wil = slave->wil;
+
+	lockdep_assert_held(&slave_lock);
+
+	slave->ctx = NULL;
+	/* make sure all rops will see the cleared context */
+	wmb();
+	/* make sure master context is not used */
+	if (test_bit(wil_status_napi_en, wil->status)) {
+		napi_synchronize(&wil->napi_rx);
+		napi_synchronize(&wil->napi_tx);
+	}
+	flush_work(&wil->wmi_event_worker);
+}
+
 void wil_unregister_slave(struct wil6210_priv *wil)
 {
 	int i;
+	struct wil_slave_entry *slave;
 
 	mutex_lock(&slave_lock);
 
 	for (i = 0; i < MAX_SLAVES; i++) {
-		if (slaves[i].wil == wil) {
-			slaves[i].wil = NULL;
-			wil->slave_ctx = NULL;
-			/* TODO unregister the vendor driver if needed */
-			goto out;
+		slave = &slaves[i];
+
+		if (slave->wil != wil)
+			continue;
+
+		if (slave->ctx) {
+			mutex_unlock(&slave_lock);
+			slave->rops.slave_going_down(slave->ctx);
+			mutex_lock(&slave_lock);
+			wil_slave_clear_master_ctx(slave);
 		}
+		slaves[i].wil = NULL;
+		wil->slave_ctx = NULL;
+		goto out;
 	}
 
 	wil_err(wil, "failed to remove slave, interface %s\n",
@@ -154,29 +180,113 @@ out_cmd:
 	return rc;
 }
 
+static void wil_slave_get_mac(void *dev, u8 *mac)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+
+	ether_addr_copy(mac, wil->main_ndev->perm_addr);
+}
+
+static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+	struct net_device *ndev = wil->main_ndev;
+
+	return _wil_start_xmit(skb, ndev);
+}
+
+static struct napi_struct *wil_slave_get_napi_rx(void *dev)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+
+	return &wil->napi_rx;
+}
+
 static struct wil_slave_ops slave_ops = {
 	.api_version = WIL_SLAVE_API_VERSION,
 	.ioctl = wil_slave_ioctl,
+	.tx_data = wil_slave_tx_data,
+	.get_mac = wil_slave_get_mac,
+	.get_napi_rx = wil_slave_get_napi_rx,
 };
 
-void wil_slave_evt_internal_fw_event(struct wil6210_vif *vif,
-				     struct wmi_internal_fw_event_event *evt,
-				     int len)
+static inline struct wil_slave_entry *
+wil_get_slave_ctx(struct wil6210_vif *vif, void **master_ctx_out)
 {
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	struct wil_slave_entry *slave = wil->slave_ctx;
 	void *master_ctx;
 
-	if (!slave || len < sizeof(struct wmi_internal_fw_event_event))
-		return;
+	if (!slave)
+		return NULL;
+	if (vif->mid != 0)
+		return NULL;
 	master_ctx = slave->ctx;
 	if (!master_ctx) {
 		wil_err(wil, "master not registered for interface %s\n",
 			wil->main_ndev->name);
-		return;
+		return NULL;
 	}
+	*master_ctx_out = master_ctx;
+	return slave;
+}
+
+void wil_slave_evt_internal_fw_event(struct wil6210_vif *vif,
+				     struct wmi_internal_fw_event_event *evt,
+				     int len)
+{
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (!slave || len < sizeof(struct wmi_internal_fw_event_event))
+		return;
 	slave->rops.rx_event(master_ctx, le16_to_cpu(evt->id),
 			     (u8 *)evt->payload, le16_to_cpu(evt->length));
+}
+
+void wil_slave_evt_connect(struct wil6210_vif *vif, const u8 *mac, u8 cid)
+{
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (!slave)
+		return;
+	slave->rops.connected(master_ctx, mac, cid);
+}
+
+void wil_slave_evt_disconnect(struct wil6210_vif *vif, u8 cid)
+{
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (!slave)
+		return;
+	slave->rops.disconnected(master_ctx, cid);
+}
+
+int wil_slave_rx_data(struct wil6210_vif *vif, u8 cid, struct sk_buff *skb)
+{
+	struct wil6210_priv *wil = vif_to_wil(vif);
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (unlikely(!slave)) {
+		dev_kfree_skb(skb);
+		return GRO_DROP;
+	}
+
+	/* pass security packets to wireless interface */
+	if (skb->protocol != cpu_to_be16(ETH_P_PAE))
+		return slave->rops.rx_data(master_ctx, cid, skb);
+	else
+		return napi_gro_receive(&wil->napi_rx, skb);
 }
 
 void *wil_register_master(const char *ifname,
@@ -245,7 +355,8 @@ void wil_unregister_master(void *dev)
 	if (!wil)
 		goto out;
 
-	slave->ctx = NULL;
+	wil_slave_clear_master_ctx(slave);
+
 	wil_info(wil, "unregistered master for interface %s\n",
 		 wil->main_ndev->name);
 out:

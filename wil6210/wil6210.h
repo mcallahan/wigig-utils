@@ -1369,6 +1369,7 @@ void wil_update_cid_net_queues_bh(struct wil6210_priv *wil,
 				  bool check_stop);
 
 netdev_tx_t wil_start_xmit(struct sk_buff *skb, struct net_device *ndev);
+netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev);
 int wil_tx_complete(struct wil6210_vif *vif, int ringid);
 void wil6210_unmask_irq_tx(struct wil6210_priv *wil);
 void wil6210_unmask_irq_tx_edma(struct wil6210_priv *wil);

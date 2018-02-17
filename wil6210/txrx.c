@@ -32,6 +32,7 @@
 #include <nss_api_if.h>
 #endif
 #include "txrx_edma.h"
+#include "slave_i.h"
 
 static bool rtap_include_phy_info;
 module_param(rtap_include_phy_info, bool, 0444);
@@ -922,7 +923,10 @@ void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev)
 		if (deliver_skb) {
 			skb->protocol = eth_type_trans(skb, ndev);
 			skb->dev = ndev;
-			rc = napi_gro_receive(&wil->napi_rx, skb);
+			if (slave_mode)
+				rc = wil_slave_rx_data(vif, cid, skb);
+			else
+				rc = napi_gro_receive(&wil->napi_rx, skb);
 		}
 		wil_dbg_txrx(wil, "Rx complete %d bytes => %s\n",
 			     len, gro_res_str[rc]);
@@ -2358,6 +2362,20 @@ void wil_update_cid_net_queues_bh(struct wil6210_priv *wil,
 }
 
 netdev_tx_t wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
+{
+	if (slave_mode) {
+		/* only allow security packets */
+		if (skb->protocol != cpu_to_be16(ETH_P_PAE)) {
+			ndev->stats.tx_dropped++;
+			dev_kfree_skb_any(skb);
+			return NET_XMIT_DROP;
+		}
+	}
+
+	return _wil_start_xmit(skb, ndev);
+}
+
+netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
 	struct wil6210_priv *wil = vif_to_wil(vif);

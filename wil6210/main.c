@@ -25,6 +25,7 @@
 #include "txrx_edma.h"
 #include "wmi.h"
 #include "boot_loader.h"
+#include "slave_i.h"
 
 #define WAIT_FOR_HALP_VOTE_MS 100
 #define WAIT_FOR_SCAN_ABORT_MS 1000
@@ -239,6 +240,9 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 			if (!from_event)
 				return;
 		}
+		if (slave_mode == 1)
+			wil_slave_evt_disconnect(vif, cid);
+
 		if (!from_event) {
 			bool del_sta = false;
 

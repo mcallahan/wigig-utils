@@ -16,6 +16,8 @@
 #ifndef __WIL6210_SLAVE_H__
 #define __WIL6210_SLAVE_H__
 
+#include <linux/netdevice.h>
+
 /* increment whenever changing wil_slave_ops or wil_slave_rops */
 #define WIL_SLAVE_API_VERSION	1
 
@@ -27,10 +29,17 @@ struct wil_slave_ops {
 	int api_version;
 	int (*ioctl)(void *dev, u16 code, u8 *req_buf, u16 req_len,
 		     u8 *resp_buf, u16 *resp_len);
+	netdev_tx_t (*tx_data)(void *dev, u8 cid, struct sk_buff *skb);
+	void (*get_mac)(void *dev, u8 *mac);
+	struct napi_struct *(*get_napi_rx)(void *dev);
 };
 
 struct wil_slave_rops {
-	void (*rx_event)(void *ctxt, u16 id, u8 *evt, u32 len);
+	void (*rx_event)(void *ctx, u16 id, u8 *evt, u32 len);
+	void (*connected)(void *ctx, const u8 *mac, u8 cid);
+	void (*disconnected)(void *ctx, u8 cid);
+	int (*rx_data)(void *ctx, u8 cid, struct sk_buff *skb);
+	void (*slave_going_down)(void *ctx);
 };
 
 /**

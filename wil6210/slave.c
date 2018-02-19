@@ -22,6 +22,7 @@
 struct wil_slave_entry {
 	struct wil6210_priv *wil;
 	void *ctx; /* master driver context */
+	char *board_file; /* board file override */
 	struct wil_slave_rops rops;
 };
 
@@ -102,6 +103,8 @@ void wil_unregister_slave(struct wil6210_priv *wil)
 			wil_slave_clear_master_ctx(slave);
 		}
 		slaves[i].wil = NULL;
+		kfree(slaves[i].board_file);
+		slaves[i].board_file = NULL;
 		wil->slave_ctx = NULL;
 		goto out;
 	}
@@ -180,6 +183,35 @@ out_cmd:
 	return rc;
 }
 
+static int wil_slave_fw_reload(void *dev, const char *board_file)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+	int rc, len;
+
+	wil_dbg_misc(wil, "slave_fw_reload, board_file %s\n", board_file);
+
+	kfree(slave->board_file);
+	slave->board_file = NULL;
+	if (board_file) {
+		len = strlen(board_file) + 1;
+		slave->board_file = kmemdup(board_file, len, GFP_KERNEL);
+		if (!slave->board_file)
+			return -ENOMEM;
+	}
+
+	wil_dbg_misc(wil, "resetting interface...\n");
+	mutex_lock(&wil->mutex);
+	__wil_down(wil);
+	rc = __wil_up(wil);
+	mutex_unlock(&wil->mutex);
+
+	if (rc)
+		wil_err(wil, "failed to reset interface, error %d\n", rc);
+
+	return rc;
+}
+
 static void wil_slave_get_mac(void *dev, u8 *mac)
 {
 	struct wil_slave_entry *slave = dev;
@@ -209,6 +241,7 @@ static struct wil_slave_ops slave_ops = {
 	.api_version = WIL_SLAVE_API_VERSION,
 	.ioctl = wil_slave_ioctl,
 	.tx_data = wil_slave_tx_data,
+	.fw_reload = wil_slave_fw_reload,
 	.get_mac = wil_slave_get_mac,
 	.get_napi_rx = wil_slave_get_napi_rx,
 };
@@ -246,6 +279,20 @@ void wil_slave_evt_internal_fw_event(struct wil6210_vif *vif,
 		return;
 	slave->rops.rx_event(master_ctx, le16_to_cpu(evt->id),
 			     (u8 *)evt->payload, le16_to_cpu(evt->length));
+}
+
+void wil_slave_evt_internal_set_channel(
+	struct wil6210_vif *vif,
+	struct wmi_internal_fw_set_channel_event *evt,
+	int len)
+{
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (!slave || len < sizeof(struct wmi_internal_fw_set_channel_event))
+		return;
+	slave->rops.set_channel(master_ctx, evt->channel_num);
 }
 
 void wil_slave_evt_connect(struct wil6210_vif *vif, const u8 *mac, u8 cid)
@@ -287,6 +334,18 @@ int wil_slave_rx_data(struct wil6210_vif *vif, u8 cid, struct sk_buff *skb)
 		return slave->rops.rx_data(master_ctx, cid, skb);
 	else
 		return napi_gro_receive(&wil->napi_rx, skb);
+}
+
+const char *wil_slave_get_board_file(struct wil6210_priv *wil)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (!slave)
+		return NULL;
+	return slave->board_file;
 }
 
 void *wil_register_master(const char *ifname,

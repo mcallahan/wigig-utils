@@ -30,6 +30,7 @@
 #define WAIT_FOR_HALP_VOTE_MS 100
 #define WAIT_FOR_SCAN_ABORT_MS 1000
 #define WIL_DEFAULT_NUM_RX_STATUS_RINGS 1
+#define WIL_BOARD_FILE_MAX_NAMELEN 128
 
 bool debug_fw; /* = false; */
 module_param(debug_fw, bool, 0444);
@@ -1175,6 +1176,26 @@ void wil_mbox_ring_le2cpus(struct wil6210_mbox_ring *r)
 	le32_to_cpus(&r->head);
 }
 
+/* construct actual board file name to use */
+void wil_get_board_file(struct wil6210_priv *wil, char *buf, size_t len)
+{
+	const char *board_file;
+
+	board_file = wil->board_file ? wil->board_file : WIL_BOARD_FILE_NAME;
+
+	/* slave mode - master override */
+	if (slave_mode) {
+		const char *master_board_file = wil_slave_get_board_file(wil);
+
+		if (master_board_file) {
+			strlcpy(buf, master_board_file, len);
+			return;
+		}
+	}
+
+	strlcpy(buf, board_file, len);
+}
+
 static int wil_get_bl_info(struct wil6210_priv *wil)
 {
 	struct net_device *ndev = wil->main_ndev;
@@ -1548,13 +1569,17 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 
 	wil_set_oob_mode(wil, oob_mode);
 	if (load_fw) {
-		wil_info(wil, "Use firmware <%s> + board <%s>\n",
-			 wil->wil_fw_name, wil_get_board_file(wil));
+		char board_file[WIL_BOARD_FILE_MAX_NAMELEN];
 
 		if  (wil->secured_boot) {
 			wil_err(wil, "secured boot is not supported\n");
 			return -ENOTSUPP;
 		}
+
+		board_file[0] = '\0';
+		wil_get_board_file(wil, board_file, sizeof(board_file));
+		wil_info(wil, "Use firmware <%s> + board <%s>\n",
+			 wil->wil_fw_name, board_file);
 
 		if (!no_flash)
 			wil_bl_prepare_halt(wil);
@@ -1566,11 +1591,9 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 		if (rc)
 			goto out;
 		if (wil->brd_file_addr)
-			rc = wil_request_board(wil, wil_get_board_file(wil));
+			rc = wil_request_board(wil, board_file);
 		else
-			rc = wil_request_firmware(wil,
-						  wil_get_board_file(wil),
-						  true);
+			rc = wil_request_firmware(wil, board_file, true);
 		if (rc)
 			goto out;
 

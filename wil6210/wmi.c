@@ -625,6 +625,8 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_RX_DESC_RING_CFG_DONE_EVENT";
 	case WMI_CFG_DEF_RX_OFFLOAD_DONE_EVENTID:
 		return "WMI_CFG_DEF_RX_OFFLOAD_DONE_EVENT";
+	case WMI_INTERNAL_FW_EVENT_EVENTID:
+		return "WMI_INTERNAL_FW_EVENT_EVENT";
 	case WMI_LINK_STATS_CONFIG_DONE_EVENTID:
 		return "WMI_LINK_STATS_CONFIG_DONE_EVENT";
 	case WMI_LINK_STATS_EVENTID:
@@ -639,6 +641,8 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_FT_AUTH_STATUS_EVENT";
 	case WMI_FT_REASSOC_STATUS_EVENTID:
 		return "WMI_FT_REASSOC_STATUS_EVENT";
+	case WMI_INTERNAL_FW_SET_CHANNEL:
+		return "WMI_INTERNAL_FW_SET_CHANNEL";
 	default:
 		return "Untracked EVENT";
 	}
@@ -1446,6 +1450,14 @@ static void wmi_evt_internal_fw_event(struct wil6210_vif *vif, int id,
 	wil_slave_evt_internal_fw_event(vif, evt, len);
 }
 
+static void wmi_evt_internal_set_channel(struct wil6210_vif *vif, int id,
+					 void *d, int len)
+{
+	struct wmi_internal_fw_set_channel_event *evt = d;
+
+	wil_slave_evt_internal_set_channel(vif, evt, len);
+}
+
 static void
 wmi_evt_sched_scan_result(struct wil6210_vif *vif, int id, void *d, int len)
 {
@@ -1959,6 +1971,7 @@ static const struct {
 	{WMI_LINK_STATS_EVENTID,		wmi_evt_link_stats},
 	{WMI_FT_AUTH_STATUS_EVENTID,		wmi_evt_auth_status},
 	{WMI_FT_REASSOC_STATUS_EVENTID,		wmi_evt_reassoc_status},
+	{WMI_INTERNAL_FW_SET_CHANNEL,		wmi_evt_internal_set_channel},
 };
 
 /*

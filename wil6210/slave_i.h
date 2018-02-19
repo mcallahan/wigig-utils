@@ -22,8 +22,13 @@ void wil_unregister_slave(struct wil6210_priv *wil);
 void wil_slave_evt_internal_fw_event(struct wil6210_vif *vif,
 				     struct wmi_internal_fw_event_event *evt,
 				     int len);
+void wil_slave_evt_internal_set_channel(
+	struct wil6210_vif *vif,
+	struct wmi_internal_fw_set_channel_event *evt,
+	int len);
 void wil_slave_evt_connect(struct wil6210_vif *vif, const u8 *mac, u8 cid);
 void wil_slave_evt_disconnect(struct wil6210_vif *vif, u8 cid);
 int wil_slave_rx_data(struct wil6210_vif *vif, u8 cid, struct sk_buff *skb);
+const char *wil_slave_get_board_file(struct wil6210_priv *wil);
 
 #endif /* __WIL6210_SLAVE_I_H__ */

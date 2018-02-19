@@ -103,10 +103,10 @@ wil_board_file_sysfs_show(struct device *dev,
 			  char *buf)
 {
 	struct wil6210_priv *wil = dev_get_drvdata(dev);
-	ssize_t len;
 
-	len = snprintf(buf, PAGE_SIZE, "%s\n", wil_get_board_file(wil));
-	return len;
+	wil_get_board_file(wil, buf, PAGE_SIZE);
+	strlcat(buf, "\n", PAGE_SIZE);
+	return strlen(buf);
 }
 
 static ssize_t

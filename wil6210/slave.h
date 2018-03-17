@@ -22,8 +22,8 @@
 #define WIL_SLAVE_API_VERSION	1
 
 /* these constants must be in sync with definition in wmi.h */
-#define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	236
-#define WIL_MAX_INTERNAL_EVENT_PAYLOAD_SIZE	236
+#define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	1024
+#define WIL_MAX_INTERNAL_EVENT_PAYLOAD_SIZE	1024
 
 struct wil_slave_ops {
 	int api_version;

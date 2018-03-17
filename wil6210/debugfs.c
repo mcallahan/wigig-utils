@@ -1759,6 +1759,10 @@ __acquires(&p->tid_rx_lock) __releases(&p->tid_rx_lock)
 					   p->stats.rx_mic_error,
 					   p->stats.rx_key_error,
 					   p->stats.rx_amsdu_error);
+			seq_printf(s,
+				   "Pending TX: %d packets (%d bytes)\n",
+				   atomic_read(&p->stats.tx_pend_packets),
+				   atomic_read(&p->stats.tx_pend_bytes));
 
 			seq_puts(s, "Rx/MCS:");
 			for (mcs = 0; mcs < ARRAY_SIZE(p->stats.rx_per_mcs);

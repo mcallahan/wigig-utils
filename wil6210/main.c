@@ -198,6 +198,7 @@ static void wil_ring_fini_tx(struct wil6210_priv *wil, int id)
 	spin_lock_bh(&txdata->lock);
 	txdata->dot1x_open = false;
 	txdata->mid = U8_MAX;
+	txdata->cid = U8_MAX;
 	txdata->enabled = 0; /* no Tx can be in progress or start anew */
 	spin_unlock_bh(&txdata->lock);
 	/* napi_synchronize waits for completion of the current NAPI but will

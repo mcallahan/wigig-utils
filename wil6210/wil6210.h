@@ -615,6 +615,7 @@ struct wil_ring_tx_data {
 	u8 agg_amsdu;
 	bool addba_in_progress; /* if set, agg_xxx is for request in progress */
 	u8 mid;
+	u8 cid; /* map back to cid for updating statistics */
 	spinlock_t lock;
 };
 
@@ -714,6 +715,8 @@ struct wil_net_stats {
 	unsigned long	rx_bytes;
 	unsigned long	tx_bytes;
 	unsigned long	tx_errors;
+	atomic_t	tx_pend_bytes;
+	atomic_t	tx_pend_packets;
 	unsigned long	rx_dropped;
 	unsigned long	rx_non_data_frame;
 	unsigned long	rx_short_frame;

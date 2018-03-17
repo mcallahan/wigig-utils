@@ -1074,6 +1074,7 @@ void wil_tx_data_init(struct wil_ring_tx_data *txdata)
 	txdata->agg_amsdu = 0;
 	txdata->addba_in_progress = false;
 	txdata->mid = U8_MAX;
+	txdata->cid = U8_MAX;
 	spin_unlock_bh(&txdata->lock);
 }
 
@@ -1156,6 +1157,7 @@ static int wil_vring_init_tx(struct wil6210_vif *vif, int id, int size,
 	spin_lock_bh(&txdata->lock);
 	vring->hwtail = le32_to_cpu(reply.cmd.tx_vring_tail_ptr);
 	txdata->mid = vif->mid;
+	txdata->cid = cid;
 	txdata->enabled = 1;
 	spin_unlock_bh(&txdata->lock);
 
@@ -1322,6 +1324,7 @@ int wil_vring_init_bcast(struct wil6210_vif *vif, int id, int size)
 	spin_lock_bh(&txdata->lock);
 	vring->hwtail = le32_to_cpu(reply.cmd.tx_vring_tail_ptr);
 	txdata->mid = vif->mid;
+	txdata->cid = U8_MAX;
 	txdata->enabled = 1;
 	spin_unlock_bh(&txdata->lock);
 
@@ -1670,6 +1673,9 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	int f, len, hdrlen, headlen;
 	int vring_index = vring - wil->ring_tx;
 	struct wil_ring_tx_data *txdata = &wil->ring_tx_data[vring_index];
+	u8 cid = txdata->cid;
+	struct wil_net_stats *stats = (cid < WIL6210_MAX_CID) ?
+		&wil->sta[cid].stats : NULL;
 	uint i = swhead;
 	dma_addr_t pa;
 	const skb_frag_t *frag = NULL;
@@ -1916,6 +1922,11 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	 */
 	wmb();
 
+	if (stats) {
+		atomic_inc(&stats->tx_pend_packets);
+		atomic_add(skb->len, &stats->tx_pend_bytes);
+	}
+
 	wil_w(wil, vring->hwtail, vring->swhead);
 	return 0;
 
@@ -1949,6 +1960,9 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	uint f = 0;
 	int ring_index = ring - wil->ring_tx;
 	struct wil_ring_tx_data  *txdata = &wil->ring_tx_data[ring_index];
+	u8 cid = txdata->cid;
+	struct wil_net_stats *stats = (cid < WIL6210_MAX_CID) ?
+		&wil->sta[cid].stats : NULL;
 	uint i = swhead;
 	dma_addr_t pa;
 	int used;
@@ -2066,6 +2080,11 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	 * committing them to HW
 	 */
 	wmb();
+
+	if (stats) {
+		atomic_inc(&stats->tx_pend_packets);
+		atomic_add(skb->len, &stats->tx_pend_bytes);
+	}
 
 	wil_w(wil, ring->hwtail, ring->swhead);
 
@@ -2508,6 +2527,13 @@ int wil_tx_complete(struct wil6210_vif *vif, int ringid)
 					ndev->stats.tx_errors++;
 					if (stats)
 						stats->tx_errors++;
+				}
+
+				if (stats) {
+					atomic_dec(
+						&stats->tx_pend_packets);
+					atomic_sub(skb->len,
+						   &stats->tx_pend_bytes);
 				}
 
 				if (vif->umac_vap)

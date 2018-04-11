@@ -229,6 +229,40 @@ static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb)
 	return _wil_start_xmit(skb, ndev);
 }
 
+static int wil_slave_link_stats(void *dev, u8 cid,
+				struct wil_slave_link_stats *stats)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+	struct wil_sta_info *sta;
+
+	wil_dbg_misc(wil, "slave_link_stats, cid %d\n", cid);
+
+	if (cid >= WIL6210_MAX_CID || !stats)
+		return -EINVAL;
+
+	sta = &wil->sta[cid];
+	if (sta->status != wil_sta_connected || sta->mid != 0)
+		return -EINVAL;
+
+	stats->rx_packets = sta->stats.rx_packets;
+	stats->tx_packets = sta->stats.tx_packets;
+	stats->rx_bytes = sta->stats.rx_bytes;
+	stats->tx_bytes = sta->stats.tx_bytes;
+	stats->rx_errors = sta->stats.rx_dropped +
+		sta->stats.rx_non_data_frame +
+		sta->stats.rx_short_frame +
+		sta->stats.rx_large_frame +
+		sta->stats.rx_mic_error +
+		sta->stats.rx_key_error +
+		sta->stats.rx_amsdu_error;
+	stats->tx_errors = sta->stats.tx_errors;
+	stats->tx_pend_packets = atomic_read(&sta->stats.tx_pend_packets);
+	stats->tx_pend_bytes = atomic_read(&sta->stats.tx_pend_bytes);
+
+	return 0;
+}
+
 static struct napi_struct *wil_slave_get_napi_rx(void *dev)
 {
 	struct wil_slave_entry *slave = dev;
@@ -241,6 +275,7 @@ static struct wil_slave_ops slave_ops = {
 	.api_version = WIL_SLAVE_API_VERSION,
 	.ioctl = wil_slave_ioctl,
 	.tx_data = wil_slave_tx_data,
+	.link_stats = wil_slave_link_stats,
 	.fw_reload = wil_slave_fw_reload,
 	.get_mac = wil_slave_get_mac,
 	.get_napi_rx = wil_slave_get_napi_rx,

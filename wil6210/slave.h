@@ -25,11 +25,25 @@
 #define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	1024
 #define WIL_MAX_INTERNAL_EVENT_PAYLOAD_SIZE	1024
 
+/* for link statistics */
+struct wil_slave_link_stats {
+	u64 rx_packets;
+	u64 tx_packets;
+	u64 rx_bytes;
+	u64 tx_bytes;
+	u64 rx_errors;
+	u64 tx_errors;
+	u64 tx_pend_bytes;
+	u64 tx_pend_packets;
+};
+
 struct wil_slave_ops {
 	int api_version;
 	int (*ioctl)(void *dev, u16 code, u8 *req_buf, u16 req_len,
 		     u8 *resp_buf, u16 *resp_len);
 	netdev_tx_t (*tx_data)(void *dev, u8 cid, struct sk_buff *skb);
+	int (*link_stats)(void *dev, u8 cid,
+			  struct wil_slave_link_stats *stats);
 	int (*fw_reload)(void *dev, const char *board_file);
 	void (*get_mac)(void *dev, u8 *mac);
 	struct napi_struct *(*get_napi_rx)(void *dev);

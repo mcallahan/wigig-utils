@@ -14,6 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <linux/if.h>
+#include <linux/platform_device.h>
 #include "wil6210.h"
 #include "wmi.h"
 #include "slave.h"
@@ -24,47 +25,13 @@ struct wil_slave_entry {
 	void *ctx; /* master driver context */
 	char *board_file; /* board file override */
 	struct wil_slave_rops rops;
+	struct wil_slave_platdata pdata;
+	struct platform_device *pdev;
 };
 
 static DEFINE_MUTEX(slave_lock);
 
-#define MAX_SLAVES	2
-
-static struct wil_slave_entry slaves[MAX_SLAVES];
-
-static int find_free_slave_entry(void)
-{
-	int i;
-
-	for (i = 0; i < MAX_SLAVES; i++)
-		if (!slaves[i].wil)
-			return i;
-
-	return -ENOENT;
-}
-
-int wil_register_slave(struct wil6210_priv *wil)
-{
-	int i, rc = 0;
-
-	mutex_lock(&slave_lock);
-
-	i = find_free_slave_entry();
-	if (i < 0) {
-		wil_err(wil, "out of slave entries, %s not added\n",
-			wil->main_ndev->name);
-		rc = -ENOMEM;
-		goto out;
-	}
-	slaves[i].wil = wil;
-	slaves[i].ctx = NULL;
-	wil->slave_ctx = &slaves[i];
-	wil_info(wil, "added slave entry, interface %s\n",
-		 wil->main_ndev->name);
-out:
-	mutex_unlock(&slave_lock);
-	return rc;
-}
+static atomic_t slave_counter;
 
 static void wil_slave_clear_master_ctx(struct wil_slave_entry *slave)
 {
@@ -81,38 +48,6 @@ static void wil_slave_clear_master_ctx(struct wil_slave_entry *slave)
 		napi_synchronize(&wil->napi_tx);
 	}
 	flush_work(&wil->wmi_event_worker);
-}
-
-void wil_unregister_slave(struct wil6210_priv *wil)
-{
-	int i;
-	struct wil_slave_entry *slave;
-
-	mutex_lock(&slave_lock);
-
-	for (i = 0; i < MAX_SLAVES; i++) {
-		slave = &slaves[i];
-
-		if (slave->wil != wil)
-			continue;
-
-		if (slave->ctx) {
-			mutex_unlock(&slave_lock);
-			slave->rops.slave_going_down(slave->ctx);
-			mutex_lock(&slave_lock);
-			wil_slave_clear_master_ctx(slave);
-		}
-		slaves[i].wil = NULL;
-		kfree(slaves[i].board_file);
-		slaves[i].board_file = NULL;
-		wil->slave_ctx = NULL;
-		goto out;
-	}
-
-	wil_err(wil, "failed to remove slave, interface %s\n",
-		wil->main_ndev->name);
-out:
-	mutex_unlock(&slave_lock);
 }
 
 static int wil_slave_ioctl(void *dev, u16 code, u8 *req_buf, u16 req_len,
@@ -271,8 +206,60 @@ static struct napi_struct *wil_slave_get_napi_rx(void *dev)
 	return &wil->napi_rx;
 }
 
+static int wil_register_master(void *dev, void *ctx,
+			       const struct wil_slave_rops *rops)
+{
+	int rc = 0;
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+
+	if (!rops)
+		return -EINVAL;
+
+	mutex_lock(&slave_lock);
+	if (rops->api_version != WIL_SLAVE_API_VERSION) {
+		wil_err(wil, "mismatched master API (expected %d have %d)\n",
+			WIL_SLAVE_API_VERSION, rops->api_version);
+		rc = -EINVAL;
+		goto out;
+	}
+
+	slave->rops = *rops;
+	slave->ctx = ctx;
+	wil_info(wil, "registered master for interface %s\n",
+		 wil->main_ndev->name);
+out:
+	mutex_unlock(&slave_lock);
+	return rc;
+}
+
+static void wil_unregister_master(void *dev)
+{
+	struct wil_slave_entry *slave;
+	struct wil6210_priv *wil;
+
+	if (!dev)
+		return;
+
+	mutex_lock(&slave_lock);
+	slave = dev;
+
+	wil = slave->wil;
+	if (!wil)
+		goto out;
+
+	wil_slave_clear_master_ctx(slave);
+
+	wil_info(wil, "unregistered master for interface %s\n",
+		 wil->main_ndev->name);
+out:
+	mutex_unlock(&slave_lock);
+}
+
 static struct wil_slave_ops slave_ops = {
 	.api_version = WIL_SLAVE_API_VERSION,
+	.register_master = wil_register_master,
+	.unregister_master = wil_unregister_master,
 	.ioctl = wil_slave_ioctl,
 	.tx_data = wil_slave_tx_data,
 	.link_stats = wil_slave_link_stats,
@@ -280,6 +267,74 @@ static struct wil_slave_ops slave_ops = {
 	.get_mac = wil_slave_get_mac,
 	.get_napi_rx = wil_slave_get_napi_rx,
 };
+
+int wil_register_slave(struct wil6210_priv *wil)
+{
+	int rc = 0;
+	struct wil_slave_entry *slave;
+
+	slave = kzalloc(sizeof(*slave), GFP_KERNEL);
+	if (!slave)
+		return -ENOMEM;
+
+	slave->pdev = platform_device_alloc(
+		"qwilvendor", atomic_inc_return(&slave_counter) - 1);
+	if (!slave->pdev) {
+		rc = -ENOMEM;
+		goto out_slave;
+	}
+
+	slave->wil = wil;
+	wil->slave_ctx = slave;
+	slave->pdata.ops = &slave_ops;
+	slave->pdata.dev_ctx = slave;
+	rc = platform_device_add_data(slave->pdev, &slave->pdata,
+				      sizeof(slave->pdata));
+	if (rc)
+		goto out;
+	rc = platform_device_add(slave->pdev);
+	if (rc) {
+		wil_err(wil, "failed to add platform device, err %d\n", rc);
+		goto out;
+	}
+
+	wil_info(wil, "added slave entry, interface %s\n",
+		 wil->main_ndev->name);
+	return 0;
+
+out:
+	platform_device_put(slave->pdev);
+out_slave:
+	kfree(slave);
+	return rc;
+}
+
+void wil_unregister_slave(struct wil6210_priv *wil)
+{
+	struct wil_slave_entry *slave;
+
+	mutex_lock(&slave_lock);
+
+	slave = wil->slave_ctx;
+
+	if (!slave) {
+		mutex_unlock(&slave_lock);
+		return;
+	}
+
+	if (slave->ctx) {
+		mutex_unlock(&slave_lock);
+		slave->rops.slave_going_down(slave->ctx);
+		mutex_lock(&slave_lock);
+		wil_slave_clear_master_ctx(slave);
+	}
+
+	mutex_unlock(&slave_lock);
+
+	platform_device_unregister(slave->pdev);
+	kfree(slave->board_file);
+	kfree(slave);
+}
 
 static inline struct wil_slave_entry *
 wil_get_slave_ctx(struct wil6210_vif *vif, void **master_ctx_out)
@@ -330,7 +385,9 @@ void wil_slave_evt_internal_set_channel(
 	slave->rops.set_channel(master_ctx, evt->channel_num);
 }
 
-void wil_slave_evt_connect(struct wil6210_vif *vif, const u8 *mac, u8 cid)
+void wil_slave_evt_connect(struct wil6210_vif *vif,
+			   int tx_link_id, int rx_link_id,
+			   const u8 *mac, u8 cid)
 {
 	struct wil_slave_entry *slave;
 	void *master_ctx;
@@ -338,7 +395,7 @@ void wil_slave_evt_connect(struct wil6210_vif *vif, const u8 *mac, u8 cid)
 	slave = wil_get_slave_ctx(vif, &master_ctx);
 	if (!slave)
 		return;
-	slave->rops.connected(master_ctx, mac, cid);
+	slave->rops.connected(master_ctx, tx_link_id, rx_link_id, mac, cid);
 }
 
 void wil_slave_evt_disconnect(struct wil6210_vif *vif, u8 cid)
@@ -382,78 +439,3 @@ const char *wil_slave_get_board_file(struct wil6210_priv *wil)
 		return NULL;
 	return slave->board_file;
 }
-
-void *wil_register_master(const char *ifname,
-			  struct wil_slave_ops *ops,
-			  const struct wil_slave_rops *rops, void *ctx)
-{
-	int i;
-	void *ret;
-	struct wil_slave_entry *slave = NULL;
-	struct wil6210_priv *wil;
-	struct net_device *ndev;
-
-	if (!ifname || !ops || !rops)
-		return ERR_PTR(-EINVAL);
-
-	mutex_lock(&slave_lock);
-	for (i = 0; i < MAX_SLAVES; i++) {
-		if (slaves[i].wil) {
-			wil = slaves[i].wil;
-			ndev = wil->main_ndev;
-			if (!strcmp(ndev->name, ifname)) {
-				slave = &slaves[i];
-				break;
-			}
-		}
-	}
-
-	if (!slave) {
-		ret = ERR_PTR(-ENOENT);
-		goto out;
-	}
-	if (ops->api_version != WIL_SLAVE_API_VERSION) {
-		wil_err(wil, "mismatched slave API (expected %d have %d)\n",
-			WIL_SLAVE_API_VERSION, ops->api_version);
-		ret = ERR_PTR(-EINVAL);
-		goto out;
-	}
-
-	*ops = slave_ops;
-	slave->rops = *rops;
-	slave->ctx = ctx;
-	wil_info(wil, "registered master for interface %s\n", ifname);
-	ret = slave;
-out:
-	mutex_unlock(&slave_lock);
-	return ret;
-}
-EXPORT_SYMBOL(wil_register_master);
-
-void wil_unregister_master(void *dev)
-{
-	int i;
-	struct wil_slave_entry *slave;
-	struct wil6210_priv *wil;
-
-	if (!dev)
-		return;
-
-	mutex_lock(&slave_lock);
-	slave = dev;
-	i = slave - &slaves[0];
-	if (i < 0 || i >= MAX_SLAVES)
-		goto out;
-
-	wil = slave->wil;
-	if (!wil)
-		goto out;
-
-	wil_slave_clear_master_ctx(slave);
-
-	wil_info(wil, "unregistered master for interface %s\n",
-		 wil->main_ndev->name);
-out:
-	mutex_unlock(&slave_lock);
-}
-EXPORT_SYMBOL(wil_unregister_master);

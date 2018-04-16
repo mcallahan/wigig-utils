@@ -19,11 +19,16 @@
 #include <linux/netdevice.h>
 
 /* increment whenever changing wil_slave_ops or wil_slave_rops */
-#define WIL_SLAVE_API_VERSION	1
+#define WIL_SLAVE_API_VERSION	2
 
 /* these constants must be in sync with definition in wmi.h */
 #define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	1024
 #define WIL_MAX_INTERNAL_EVENT_PAYLOAD_SIZE	1024
+
+/* should be in sync with wil6210 driver */
+#define WIL_SLAVE_MAX_CID			16
+/* max possible link ID */
+#define WIL_SLAVE_MAX_LINKS			32
 
 /* for link statistics */
 struct wil_slave_link_stats {
@@ -37,8 +42,22 @@ struct wil_slave_link_stats {
 	u64 tx_pend_packets;
 };
 
+struct wil_slave_rops {
+	int api_version;
+	void (*rx_event)(void *ctx, u16 id, u8 *evt, u32 len);
+	void (*connected)(void *ctx, int tx_link_id, int rx_link_id,
+			  const u8 *mac, u8 cid);
+	void (*disconnected)(void *ctx, u8 cid);
+	int (*rx_data)(void *ctx, u8 cid, struct sk_buff *skb);
+	void (*set_channel)(void *ctx, u8 channel);
+	void (*slave_going_down)(void *ctx);
+};
+
 struct wil_slave_ops {
 	int api_version;
+	int (*register_master)(void *dev, void *ctx,
+			       const struct wil_slave_rops *rops);
+	void (*unregister_master)(void *dev);
 	int (*ioctl)(void *dev, u16 code, u8 *req_buf, u16 req_len,
 		     u8 *resp_buf, u16 *resp_len);
 	netdev_tx_t (*tx_data)(void *dev, u8 cid, struct sk_buff *skb);
@@ -49,36 +68,10 @@ struct wil_slave_ops {
 	struct napi_struct *(*get_napi_rx)(void *dev);
 };
 
-struct wil_slave_rops {
-	void (*rx_event)(void *ctx, u16 id, u8 *evt, u32 len);
-	void (*connected)(void *ctx, const u8 *mac, u8 cid);
-	void (*disconnected)(void *ctx, u8 cid);
-	int (*rx_data)(void *ctx, u8 cid, struct sk_buff *skb);
-	void (*set_channel)(void *ctx, u8 channel);
-	void (*slave_going_down)(void *ctx);
+/* platform device data for interaction with master driver */
+struct wil_slave_platdata {
+	struct wil_slave_ops *ops;
+	void *dev_ctx;
 };
-
-/**
- * wil_register_master - register a master driver
- * @ifname: main interface name to identify wil6210 instance
- * @ops: slave operations. See notes below.
- * @rops: Callbacks to master driver, filled by caller.
- * @ctx: master driver context. Pass to rops.
- * @return slave context or error pointer.
- *
- * Caller should set api_version in ops structure for API
- * compatibility check. On success, this function will fill
- * the function pointers in ops and return a slave context
- * that needs to be passed to all ops.
- */
-void *wil_register_master(const char *ifname,
-			  struct wil_slave_ops *ops,
-			  const struct wil_slave_rops *rops, void *ctx);
-
-/**
- * wil_unregister_master - unregister a master driver
- * @dev - slave context
- */
-void wil_unregister_master(void *dev);
 
 #endif /* __WIL6210_SLAVE_H__ */

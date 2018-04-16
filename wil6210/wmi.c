@@ -1178,7 +1178,10 @@ static void wmi_evt_connect(struct wil6210_vif *vif, int id, void *d, int len)
 	wil_update_cid_net_queues_bh(wil, vif, evt->cid, false);
 
 	if (slave_mode == 1)
-		wil_slave_evt_connect(vif, evt->bssid, evt->cid);
+		/* partial slave mode - allocate link IDs according to cid */
+		wil_slave_evt_connect(vif, evt->cid,
+				      WIL6210_MAX_CID + evt->cid,
+				      evt->bssid, evt->cid);
 out:
 	if (rc) {
 		wil->sta[evt->cid].status = wil_sta_unused;

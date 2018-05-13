@@ -1298,6 +1298,9 @@ void wil_abort_scan(struct wil6210_vif *vif, bool sync)
 {
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc;
+	struct cfg80211_scan_info info = {
+		.aborted = true,
+	};
 
 	lockdep_assert_held(&wil->vif_mutex);
 
@@ -1315,7 +1318,7 @@ void wil_abort_scan(struct wil6210_vif *vif, bool sync)
 
 	mutex_lock(&wil->vif_mutex);
 	if (vif->scan_request) {
-		cfg80211_scan_done(vif->scan_request, true);
+		cfg80211_scan_done(vif->scan_request, &info);
 		vif->scan_request = NULL;
 	}
 }

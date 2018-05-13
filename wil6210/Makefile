@@ -30,6 +30,10 @@ CFLAGS_trace.o := -I$(src)
 
 subdir-ccflags-y += -D__CHECK_ENDIAN__
 
+# debugfs support
+ifeq (y, $(CONFIG_WIL6210_DEBUGFS))
+subdir-ccflags-y += -DCONFIG_WIL6210_DEBUGFS
+endif
 # NSS Support
 ifeq (y, $(CONFIG_WIL6210_NSS_SUPPORT))
 subdir-ccflags-y += -DCONFIG_WIL6210_NSS_SUPPORT

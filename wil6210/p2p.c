@@ -283,9 +283,13 @@ void wil_p2p_search_expired(struct work_struct *work)
 	mutex_unlock(&wil->mutex);
 
 	if (started) {
+		struct cfg80211_scan_info info = {
+			.aborted = false,
+		};
+
 		mutex_lock(&wil->vif_mutex);
 		if (vif->scan_request) {
-			cfg80211_scan_done(vif->scan_request, 0);
+			cfg80211_scan_done(vif->scan_request, &info);
 			vif->scan_request = NULL;
 			if (vif->mid == 0)
 				wil->radio_wdev =
@@ -346,6 +350,9 @@ void wil_p2p_stop_radio_operations(struct wil6210_priv *wil)
 {
 	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
 	struct wil_p2p_info *p2p = &vif->p2p;
+	struct cfg80211_scan_info info = {
+		.aborted = true,
+	};
 
 	lockdep_assert_held(&wil->mutex);
 	lockdep_assert_held(&wil->vif_mutex);
@@ -368,7 +375,7 @@ void wil_p2p_stop_radio_operations(struct wil6210_priv *wil)
 
 	if (vif->scan_request) {
 		/* search */
-		cfg80211_scan_done(vif->scan_request, true);
+		cfg80211_scan_done(vif->scan_request, &info);
 		vif->scan_request = NULL;
 	} else {
 		/* listen */

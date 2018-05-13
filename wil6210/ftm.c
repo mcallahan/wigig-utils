@@ -206,14 +206,18 @@ static int wil_ftm_append_peer_meas_res(struct wil6210_priv *wil,
 		nl_f = nla_nest_start(msg, i);
 		if (!nl_f)
 			goto out_put_failure;
-		if (nla_put_u64(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T1,
-				res->meas[i].t1) ||
-		    nla_put_u64(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T2,
-				res->meas[i].t2) ||
-		    nla_put_u64(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T3,
-				res->meas[i].t3) ||
-		    nla_put_u64(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T4,
-				res->meas[i].t4))
+		if (nla_put_u64_64bit(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T1,
+				      res->meas[i].t1,
+				      QCA_WLAN_VENDOR_ATTR_FTM_MEAS_PAD) ||
+		    nla_put_u64_64bit(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T2,
+				      res->meas[i].t2,
+				      QCA_WLAN_VENDOR_ATTR_FTM_MEAS_PAD) ||
+		    nla_put_u64_64bit(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T3,
+				      res->meas[i].t3,
+				      QCA_WLAN_VENDOR_ATTR_FTM_MEAS_PAD) ||
+		    nla_put_u64_64bit(msg, QCA_WLAN_VENDOR_ATTR_FTM_MEAS_T4,
+				      res->meas[i].t4,
+				      QCA_WLAN_VENDOR_ATTR_FTM_MEAS_PAD))
 			goto out_put_failure;
 		nla_nest_end(msg, nl_f);
 	}
@@ -247,8 +251,10 @@ static void wil_ftm_send_meas_result(struct wil6210_vif *vif,
 		goto out;
 	}
 
-	if (nla_put_u64(vendor_event, QCA_WLAN_VENDOR_ATTR_FTM_SESSION_COOKIE,
-			vif->ftm.session_cookie)) {
+	if (nla_put_u64_64bit(vendor_event,
+			      QCA_WLAN_VENDOR_ATTR_FTM_SESSION_COOKIE,
+			      vif->ftm.session_cookie,
+			      QCA_WLAN_VENDOR_ATTR_PAD)) {
 		rc = -ENOBUFS;
 		goto out;
 	}
@@ -453,9 +459,10 @@ wil_ftm_cfg80211_session_ended(struct wil6210_vif *vif, u32 status)
 	if (!vendor_event)
 		goto out;
 
-	if (nla_put_u64(vendor_event,
-			QCA_WLAN_VENDOR_ATTR_FTM_SESSION_COOKIE,
-			vif->ftm.session_cookie) ||
+	if (nla_put_u64_64bit(vendor_event,
+			      QCA_WLAN_VENDOR_ATTR_FTM_SESSION_COOKIE,
+			      vif->ftm.session_cookie,
+			      QCA_WLAN_VENDOR_ATTR_PAD) ||
 	    nla_put_u32(vendor_event,
 			QCA_WLAN_VENDOR_ATTR_LOC_SESSION_STATUS, status)) {
 		wil_err(wil, "failed to fill session done event\n");

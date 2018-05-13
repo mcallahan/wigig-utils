@@ -812,7 +812,7 @@ static void wmi_evt_rx_mgmt(struct wil6210_vif *vif, int id, void *d, int len)
 	}
 
 	ch_no = data->info.channel + 1;
-	freq = ieee80211_channel_to_frequency(ch_no, IEEE80211_BAND_60GHZ);
+	freq = ieee80211_channel_to_frequency(ch_no, NL80211_BAND_60GHZ);
 	channel = ieee80211_get_channel(wiphy, freq);
 	if (test_bit(WMI_FW_CAPABILITY_RSSI_REPORTING, wil->fw_capabilities))
 		signal = 100 * data->info.rssi;
@@ -897,14 +897,16 @@ static void wmi_evt_scan_complete(struct wil6210_vif *vif, int id,
 	if (vif->scan_request) {
 		struct wmi_scan_complete_event *data = d;
 		int status = le32_to_cpu(data->status);
-		bool aborted = (status != WMI_SCAN_SUCCESS) &&
-				(status != WMI_SCAN_ABORT_REJECTED);
+		struct cfg80211_scan_info info = {
+			.aborted = ((status != WMI_SCAN_SUCCESS) &&
+				(status != WMI_SCAN_ABORT_REJECTED)),
+		};
 
 		wil_dbg_wmi(wil, "SCAN_COMPLETE(0x%08x)\n", status);
 		wil_dbg_misc(wil, "Complete scan_request 0x%p aborted %d\n",
-			     vif->scan_request, aborted);
+			     vif->scan_request, info.aborted);
 		del_timer_sync(&vif->scan_timer);
-		cfg80211_scan_done(vif->scan_request, aborted);
+		cfg80211_scan_done(vif->scan_request, &info);
 		if (vif->mid == 0)
 			wil->radio_wdev = wil->main_ndev->ieee80211_ptr;
 		vif->scan_request = NULL;

@@ -57,7 +57,7 @@ MODULE_PARM_DESC(acs_ch_weight, " Channel weight in %. This is channel priority 
 #define ACS_DEFAULT_BEST_CHANNEL 2
 
 #define CHAN60G(_channel, _flags) {				\
-	.band			= IEEE80211_BAND_60GHZ,		\
+	.band			= NL80211_BAND_60GHZ,		\
 	.center_freq		= 56160 + (2160 * (_channel)),	\
 	.hw_value		= (_channel),			\
 	.flags			= (_flags),			\
@@ -2334,8 +2334,7 @@ wil_cfg80211_sched_scan_start(struct wiphy *wiphy,
 }
 
 static int
-wil_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev,
-			     u64 reqid)
+wil_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 {
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
 	struct wil6210_vif *vif = ndev_to_vif(dev);
@@ -2414,7 +2413,7 @@ static void wil_wiphy_init(struct wiphy *wiphy)
 		NL80211_PROBE_RESP_OFFLOAD_SUPPORT_WPS2 |
 		NL80211_PROBE_RESP_OFFLOAD_SUPPORT_P2P;
 
-	wiphy->bands[IEEE80211_BAND_60GHZ] = &wil_band_60ghz;
+	wiphy->bands[NL80211_BAND_60GHZ] = &wil_band_60ghz;
 
 	/* may change after reading FW capabilities */
 	wiphy->signal_type = CFG80211_SIGNAL_TYPE_UNSPEC;
@@ -2968,7 +2967,9 @@ static int wil_rf_sector_get_cfg(struct wiphy *wiphy,
 	if (!msg)
 		return -ENOMEM;
 
-	if (nla_put_u64(msg, QCA_ATTR_TSF, le64_to_cpu(reply.evt.tsf)))
+	if (nla_put_u64_64bit(msg, QCA_ATTR_TSF,
+			      le64_to_cpu(reply.evt.tsf),
+			      QCA_ATTR_PAD))
 		goto nla_put_failure;
 
 	nl_cfgs = nla_nest_start(msg, QCA_ATTR_DMG_RF_SECTOR_CFG);
@@ -3188,7 +3189,9 @@ static int wil_rf_sector_get_selected(struct wiphy *wiphy,
 	if (!msg)
 		return -ENOMEM;
 
-	if (nla_put_u64(msg, QCA_ATTR_TSF, le64_to_cpu(reply.evt.tsf)) ||
+	if (nla_put_u64_64bit(msg, QCA_ATTR_TSF,
+			      le64_to_cpu(reply.evt.tsf),
+			      QCA_ATTR_PAD) ||
 	    nla_put_u16(msg, QCA_ATTR_DMG_RF_SECTOR_INDEX,
 			le16_to_cpu(reply.evt.sector_idx)))
 		goto nla_put_failure;

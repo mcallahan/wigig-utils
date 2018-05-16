@@ -791,6 +791,10 @@ static int wil_rx_crypto_check(struct wil6210_priv *wil, struct sk_buff *skb)
 	struct wil_tid_crypto_rx_single *cc = &c->key_id[key_id];
 	const u8 *pn = (u8 *)&d->mac.pn_15_0;
 
+	/* in full slave mode, handshake/key management handled by master */
+	if (slave_mode == 2)
+		return 0;
+
 	if (!cc->key_set) {
 		wil_err_ratelimited(wil,
 				    "Key missing. CID %d TID %d MCast %d KEY_ID %d\n",
@@ -2363,16 +2367,20 @@ void wil_update_cid_net_queues_bh(struct wil6210_priv *wil,
 
 netdev_tx_t wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
-	if (slave_mode) {
-		/* only allow security packets */
-		if (skb->protocol != cpu_to_be16(ETH_P_PAE)) {
-			ndev->stats.tx_dropped++;
-			dev_kfree_skb_any(skb);
-			return NET_XMIT_DROP;
-		}
+	switch (slave_mode) {
+	case 0:
+		return _wil_start_xmit(skb, ndev);
+	case 1:
+		/* partial slave mode, allow security packets */
+		if (skb->protocol == cpu_to_be16(ETH_P_PAE))
+			return _wil_start_xmit(skb, ndev);
+		/* fall through */
+	default:
+		/* full slave mode, drop all packets */
+		ndev->stats.tx_dropped++;
+		dev_kfree_skb_any(skb);
+		return NET_XMIT_DROP;
 	}
-
-	return _wil_start_xmit(skb, ndev);
 }
 
 netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)

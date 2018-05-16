@@ -75,6 +75,14 @@ static int wil_open(struct net_device *ndev)
 
 	wil_dbg_misc(wil, "open\n");
 
+	/* in full slave mode do not allow interface up.
+	 * ifup/down run from register/unregister master.
+	 */
+	if (slave_mode == 2) {
+		wil_err(wil, "interface up rejected in full slave mode\n");
+		return -EINVAL;
+	}
+
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 	if (!vif->nss_handle) {
 		vif->nss_handle = nss_virt_if_create_sync(ndev);
@@ -113,6 +121,9 @@ static int wil_stop(struct net_device *ndev)
 	int rc = 0;
 
 	wil_dbg_misc(wil, "stop\n");
+
+	if (slave_mode == 2)
+		return 0;
 
 	if (!wil_has_other_active_ifaces(wil, ndev, true, false)) {
 		wil_dbg_misc(wil, "stop, last iface\n");

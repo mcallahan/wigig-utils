@@ -1301,6 +1301,15 @@ int wmi_start_listen(struct wil6210_vif *vif);
 int wmi_start_search(struct wil6210_vif *vif);
 int wmi_stop_discovery(struct wil6210_vif *vif);
 
+int wil_cfg80211_add_key(struct wiphy *wiphy,
+			 struct net_device *ndev,
+			 u8 key_index, bool pairwise,
+			 const u8 *mac_addr,
+			 struct key_params *params);
+int wil_cfg80211_del_key(struct wiphy *wiphy,
+			 struct net_device *ndev,
+			 u8 key_index, bool pairwise,
+			 const u8 *mac_addr);
 int wil_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 			 struct cfg80211_mgmt_tx_params *params,
 			 u64 *cookie);
@@ -1347,6 +1356,7 @@ void wil_init_txrx_ops(struct wil6210_priv *wil);
 
 /* TX API */
 int wil_ring_init_tx(struct wil6210_vif *vif, int cid);
+void wil_ring_fini_tx(struct wil6210_priv *wil, int id);
 int wil_vring_init_bcast(struct wil6210_vif *vif, int id, int size);
 int wil_bcast_init(struct wil6210_vif *vif);
 void wil_bcast_fini(struct wil6210_vif *vif);

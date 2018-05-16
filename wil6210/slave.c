@@ -16,6 +16,7 @@
 #include <linux/if.h>
 #include <linux/platform_device.h>
 #include "wil6210.h"
+#include "txrx.h"
 #include "wmi.h"
 #include "slave.h"
 #include "slave_i.h"
@@ -50,7 +51,7 @@ static void wil_slave_clear_master_ctx(struct wil_slave_entry *slave)
 	flush_work(&wil->wmi_event_worker);
 }
 
-static int wil_slave_ioctl(void *dev, u16 code, u8 *req_buf, u16 req_len,
+static int wil_slave_ioctl(void *dev, u16 code, const u8 *req_buf, u16 req_len,
 			   u8 *resp_buf, u16 *resp_len)
 {
 	struct wil_slave_entry *slave = dev;
@@ -116,6 +117,24 @@ out_reply:
 out_cmd:
 	kfree(cmd);
 	return rc;
+}
+
+static int wil_slave_set_key(void *dev, const u8 *mac, const u8 *key, u16 len)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+	struct wiphy *wiphy = wil_to_wiphy(wil);
+	struct key_params params = {NULL};
+
+	if (len > 0) {
+		params.key = key;
+		params.key_len = len;
+		return wil_cfg80211_add_key(wiphy, wil->main_ndev, 0, true,
+					    mac, &params);
+	} else {
+		return wil_cfg80211_del_key(wiphy, wil->main_ndev, 0, true,
+					    mac);
+	}
 }
 
 static int wil_slave_fw_reload(void *dev, const char *board_file)
@@ -206,6 +225,19 @@ static struct napi_struct *wil_slave_get_napi_rx(void *dev)
 	return &wil->napi_rx;
 }
 
+static void wil_slave_sync_rx(void *dev)
+{
+	struct wil_slave_entry *slave = dev;
+	struct wil6210_priv *wil = slave->wil;
+
+	wil_dbg_misc(wil, "slave_sync_rx");
+
+	mutex_lock(&wil->mutex);
+	if (test_bit(wil_status_napi_en, wil->status))
+		napi_synchronize(&wil->napi_rx);
+	mutex_unlock(&wil->mutex);
+}
+
 static int wil_register_master(void *dev, void *ctx,
 			       const struct wil_slave_rops *rops)
 {
@@ -222,6 +254,12 @@ static int wil_register_master(void *dev, void *ctx,
 			WIL_SLAVE_API_VERSION, rops->api_version);
 		rc = -EINVAL;
 		goto out;
+	}
+
+	if (slave_mode == 2) {
+		rc = wil_up(wil);
+		if (rc)
+			goto out;
 	}
 
 	slave->rops = *rops;
@@ -248,6 +286,9 @@ static void wil_unregister_master(void *dev)
 	if (!wil)
 		goto out;
 
+	if (slave_mode == 2)
+		wil_down(wil);
+
 	wil_slave_clear_master_ctx(slave);
 
 	wil_info(wil, "unregistered master for interface %s\n",
@@ -261,11 +302,13 @@ static struct wil_slave_ops slave_ops = {
 	.register_master = wil_register_master,
 	.unregister_master = wil_unregister_master,
 	.ioctl = wil_slave_ioctl,
+	.set_key = wil_slave_set_key,
 	.tx_data = wil_slave_tx_data,
 	.link_stats = wil_slave_link_stats,
 	.fw_reload = wil_slave_fw_reload,
 	.get_mac = wil_slave_get_mac,
 	.get_napi_rx = wil_slave_get_napi_rx,
+	.sync_rx = wil_slave_sync_rx,
 };
 
 int wil_register_slave(struct wil6210_priv *wil)
@@ -385,6 +428,156 @@ void wil_slave_evt_internal_set_channel(
 	slave->rops.set_channel(master_ctx, evt->channel_num);
 }
 
+void wil_slave_tdm_connect(struct wil6210_vif *vif,
+			   struct wmi_tdm_connect_event *evt,
+			   int len)
+{
+	struct wil6210_priv *wil = vif_to_wil(vif);
+	int rc;
+
+	if (slave_mode != 2) {
+		wil_err(wil, "TDM connection ignored, not full slave\n");
+		return;
+	}
+	if (len < sizeof(*evt)) {
+		wil_err(wil, "TDM Connect event too short : %d bytes\n", len);
+		return;
+	}
+	if (evt->cid >= WIL6210_MAX_CID) {
+		wil_err(wil, "TDM Connect CID invalid : %d\n", evt->cid);
+		return;
+	}
+
+	wil_dbg_misc(wil, "TDM connect, CID %d MAC %pM link rx %d tx %d\n",
+		     evt->cid, evt->mac_addr,
+		     evt->link_id_rx, evt->link_id_tx);
+
+	if (test_bit(wil_status_resetting, wil->status) ||
+	    !test_bit(wil_status_fwready, wil->status)) {
+		wil_err(wil, "status_resetting, cancel connect event, CID %d\n",
+			evt->cid);
+		/* no need for cleanup, wil_reset will do that */
+		return;
+	}
+
+	mutex_lock(&wil->mutex);
+
+	if (wil->sta[evt->cid].status != wil_sta_unused) {
+		wil_err(wil, "Invalid status %d for CID %d\n",
+			wil->sta[evt->cid].status, evt->cid);
+		mutex_unlock(&wil->mutex);
+		return;
+	}
+
+	ether_addr_copy(wil->sta[evt->cid].addr, evt->mac_addr);
+	wil->sta[evt->cid].mid = vif->mid;
+	wil->sta[evt->cid].status = wil_sta_conn_pending;
+
+	rc = wil_ring_init_tx(vif, evt->cid);
+	if (rc) {
+		wil_err(wil, "config tx vring failed for CID %d, rc (%d)\n",
+			evt->cid, rc);
+		/* TODO we should notify FW about failure,
+		 * cannot call wmi_sta_disconnect in full slave mode.
+		 */
+		goto out;
+	}
+
+	wil->sta[evt->cid].status = wil_sta_connected;
+	wil->sta[evt->cid].aid = 0;
+	if (!test_and_set_bit(wil_vif_fwconnected, vif->status))
+		atomic_inc(&wil->connected_vifs);
+	wil_update_cid_net_queues_bh(wil, vif, evt->cid, false);
+
+	wil_slave_evt_connect(vif, evt->link_id_tx, evt->link_id_rx,
+			      evt->mac_addr, evt->cid);
+out:
+	if (rc) {
+		wil->sta[evt->cid].status = wil_sta_unused;
+		wil->sta[evt->cid].mid = U8_MAX;
+	}
+	clear_bit(wil_vif_fwconnecting, vif->status);
+	mutex_unlock(&wil->mutex);
+}
+
+void wil_slave_tdm_disconnect(struct wil6210_vif *vif,
+			      struct wmi_tdm_disconnect_event *evt,
+			      int len)
+__acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
+{
+	uint i;
+	struct wil6210_priv *wil = vif_to_wil(vif);
+	struct wil_sta_info *sta;
+
+	if (slave_mode != 2) {
+		wil_err(wil, "TDM disconnect ignored, not full slave\n");
+		return;
+	}
+	if (len < sizeof(*evt)) {
+		wil_err(wil, "TDM disconnect event too short : %d bytes\n",
+			len);
+		return;
+	}
+	if (evt->cid >= WIL6210_MAX_CID) {
+		wil_err(wil, "TDM disconnect CID invalid : %d\n", evt->cid);
+		return;
+	}
+
+	sta =  &wil->sta[evt->cid];
+	wil_dbg_misc(wil, "TDM disconnect_cid: CID %d, MID %d, status %d\n",
+		     evt->cid, sta->mid, sta->status);
+
+	if (test_bit(wil_status_resetting, wil->status) ||
+	    !test_bit(wil_status_fwready, wil->status)) {
+		wil_err(wil, "status_resetting, cancel disconnect event\n");
+		/* no need for cleanup, wil_reset will do that */
+		return;
+	}
+
+	mutex_lock(&wil->mutex);
+
+	might_sleep();
+
+	/* inform upper/lower layers */
+	if (sta->status != wil_sta_unused) {
+		wil_slave_evt_disconnect(vif, evt->cid);
+
+		if (WIL_Q_PER_STA_USED(vif))
+			wil_update_cid_net_queues_bh(wil, vif, evt->cid, true);
+		sta->status = wil_sta_unused;
+		sta->mid = U8_MAX;
+		sta->fst_link_loss = false;
+	}
+
+	/* reorder buffers */
+	for (i = 0; i < WIL_STA_TID_NUM; i++) {
+		struct wil_tid_ampdu_rx *r;
+
+		spin_lock_bh(&sta->tid_rx_lock);
+
+		r = sta->tid_rx[i];
+		sta->tid_rx[i] = NULL;
+		wil_tid_ampdu_rx_free(wil, r);
+
+		spin_unlock_bh(&sta->tid_rx_lock);
+	}
+
+	/* crypto context */
+	memset(sta->tid_crypto_rx, 0, sizeof(sta->tid_crypto_rx));
+	memset(&sta->group_crypto_rx, 0, sizeof(sta->group_crypto_rx));
+
+	/* release vrings */
+	for (i = 0; i < ARRAY_SIZE(wil->ring_tx); i++) {
+		if (wil->ring2cid_tid[i][0] == evt->cid)
+			wil_ring_fini_tx(wil, i);
+	}
+
+	/* statistics */
+	memset(&sta->stats, 0, sizeof(sta->stats));
+
+	mutex_unlock(&wil->mutex);
+}
+
 void wil_slave_evt_connect(struct wil6210_vif *vif,
 			   int tx_link_id, int rx_link_id,
 			   const u8 *mac, u8 cid)
@@ -421,8 +614,9 @@ int wil_slave_rx_data(struct wil6210_vif *vif, u8 cid, struct sk_buff *skb)
 		return GRO_DROP;
 	}
 
-	/* pass security packets to wireless interface */
-	if (skb->protocol != cpu_to_be16(ETH_P_PAE))
+	/* pass security packets to wireless interface (partial slave mode) */
+	if (slave_mode == 2 ||
+	    skb->protocol != cpu_to_be16(ETH_P_PAE))
 		return slave->rops.rx_data(master_ctx, cid, skb);
 	else
 		return napi_gro_receive(&wil->napi_rx, skb);

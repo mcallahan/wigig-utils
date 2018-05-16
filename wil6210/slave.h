@@ -58,14 +58,16 @@ struct wil_slave_ops {
 	int (*register_master)(void *dev, void *ctx,
 			       const struct wil_slave_rops *rops);
 	void (*unregister_master)(void *dev);
-	int (*ioctl)(void *dev, u16 code, u8 *req_buf, u16 req_len,
+	int (*ioctl)(void *dev, u16 code, const u8 *req_buf, u16 req_len,
 		     u8 *resp_buf, u16 *resp_len);
+	int (*set_key)(void *dev, const u8 *mac, const u8 *key, u16 len);
 	netdev_tx_t (*tx_data)(void *dev, u8 cid, struct sk_buff *skb);
 	int (*link_stats)(void *dev, u8 cid,
 			  struct wil_slave_link_stats *stats);
 	int (*fw_reload)(void *dev, const char *board_file);
 	void (*get_mac)(void *dev, u8 *mac);
 	struct napi_struct *(*get_napi_rx)(void *dev);
+	void (*sync_rx)(void *dev);
 };
 
 /* platform device data for interaction with master driver */

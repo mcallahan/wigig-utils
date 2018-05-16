@@ -26,6 +26,12 @@ void wil_slave_evt_internal_set_channel(
 	struct wil6210_vif *vif,
 	struct wmi_internal_fw_set_channel_event *evt,
 	int len);
+void wil_slave_tdm_connect(struct wil6210_vif *vif,
+			   struct wmi_tdm_connect_event *evt,
+			   int len);
+void wil_slave_tdm_disconnect(struct wil6210_vif *vif,
+			      struct wmi_tdm_disconnect_event *evt,
+			      int len);
 void wil_slave_evt_connect(struct wil6210_vif *vif,
 			   int tx_link_id, int rx_link_id,
 			   const u8 *mac, u8 cid);

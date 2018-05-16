@@ -1696,11 +1696,11 @@ static void wil_del_rx_key(u8 key_index, enum wmi_key_usage key_usage,
 	}
 }
 
-static int wil_cfg80211_add_key(struct wiphy *wiphy,
-				struct net_device *ndev,
-				u8 key_index, bool pairwise,
-				const u8 *mac_addr,
-				struct key_params *params)
+int wil_cfg80211_add_key(struct wiphy *wiphy,
+			 struct net_device *ndev,
+			 u8 key_index, bool pairwise,
+			 const u8 *mac_addr,
+			 struct key_params *params)
 {
 	int rc;
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
@@ -1767,10 +1767,10 @@ static int wil_cfg80211_add_key(struct wiphy *wiphy,
 	return rc;
 }
 
-static int wil_cfg80211_del_key(struct wiphy *wiphy,
-				struct net_device *ndev,
-				u8 key_index, bool pairwise,
-				const u8 *mac_addr)
+int wil_cfg80211_del_key(struct wiphy *wiphy,
+			 struct net_device *ndev,
+			 u8 key_index, bool pairwise,
+			 const u8 *mac_addr)
 {
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);

@@ -491,6 +491,8 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_FT_REASSOC_CMD";
 	case WMI_UPDATE_FT_IES_CMDID:
 		return "WMI_UPDATE_FT_IES_CMD";
+	case WMI_INTERNAL_FW_IOCTL_CMDID:
+		return "WMI_INTERNAL_FW_IOCTL_CMD";
 	default:
 		return "Untracked CMD";
 	}
@@ -641,8 +643,14 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_FT_AUTH_STATUS_EVENT";
 	case WMI_FT_REASSOC_STATUS_EVENTID:
 		return "WMI_FT_REASSOC_STATUS_EVENT";
+	case WMI_INTERNAL_FW_IOCTL_EVENTID:
+		return "WMI_INTERNAL_FW_IOCTL_EVENT";
 	case WMI_INTERNAL_FW_SET_CHANNEL:
 		return "WMI_INTERNAL_FW_SET_CHANNEL";
+	case WMI_TDM_CONNECT_EVENTID:
+		return "WMI_TDM_CONNECT_EVENT";
+	case WMI_TDM_DISCONNECT_EVENTID:
+		return "WMI_TDM_DISCONNECT_EVENT";
 	default:
 		return "Untracked EVENT";
 	}
@@ -1029,6 +1037,10 @@ static void wmi_evt_connect(struct wil6210_vif *vif, int id, void *d, int len)
 	const size_t assoc_resp_ie_offset = sizeof(u16) * 3;
 	int rc;
 
+	if (slave_mode == 2) {
+		wil_err(wil, "Connect event ignored in full slave mode\n");
+		return;
+	}
 	if (len < sizeof(*evt)) {
 		wil_err(wil, "Connect event too short : %d bytes\n", len);
 		return;
@@ -1200,6 +1212,11 @@ static void wmi_evt_disconnect(struct wil6210_vif *vif, int id,
 
 	wil_info(wil, "Disconnect %pM reason [proto %d wmi %d]\n",
 		 evt->bssid, reason_code, evt->disconnect_reason);
+
+	if (slave_mode == 2) {
+		wil_err(wil, "Disconnect event ignored in full slave mode\n");
+		return;
+	}
 
 	wil->sinfo_gen++;
 
@@ -1459,6 +1476,22 @@ static void wmi_evt_internal_set_channel(struct wil6210_vif *vif, int id,
 	struct wmi_internal_fw_set_channel_event *evt = d;
 
 	wil_slave_evt_internal_set_channel(vif, evt, len);
+}
+
+static void wmi_evt_tdm_connect(struct wil6210_vif *vif, int id,
+				void *d, int len)
+{
+	struct wmi_tdm_connect_event *evt = d;
+
+	wil_slave_tdm_connect(vif, evt, len);
+}
+
+static void wmi_evt_tdm_disconnect(struct wil6210_vif *vif, int id,
+				   void *d, int len)
+{
+	struct wmi_tdm_disconnect_event *evt = d;
+
+	wil_slave_tdm_disconnect(vif, evt, len);
 }
 
 static void
@@ -1975,6 +2008,8 @@ static const struct {
 	{WMI_FT_AUTH_STATUS_EVENTID,		wmi_evt_auth_status},
 	{WMI_FT_REASSOC_STATUS_EVENTID,		wmi_evt_reassoc_status},
 	{WMI_INTERNAL_FW_SET_CHANNEL,		wmi_evt_internal_set_channel},
+	{WMI_TDM_CONNECT_EVENTID,		wmi_evt_tdm_connect},
+	{WMI_TDM_DISCONNECT_EVENTID,		wmi_evt_tdm_disconnect},
 };
 
 /*

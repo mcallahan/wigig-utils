@@ -1921,6 +1921,8 @@ enum wmi_event_id {
 	WMI_FW_VER_EVENTID				= 0x9004,
 	WMI_ACS_PASSIVE_SCAN_COMPLETE_EVENTID		= 0x9005,
 	WMI_INTERNAL_FW_SET_CHANNEL			= 0x9006,
+	WMI_TDM_CONNECT_EVENTID				= 0x9007,
+	WMI_TDM_DISCONNECT_EVENTID			= 0x9008,
 	WMI_COMMAND_NOT_SUPPORTED_EVENTID		= 0xFFFF,
 };
 
@@ -3889,4 +3891,18 @@ struct wmi_set_vring_priority_event {
 	u8 reserved[3];
 } __packed;
 
+/* WMI_TDM_CONNECT_EVENTID */
+struct wmi_tdm_connect_event {
+	u8 mac_addr[6];
+	u8 cid;
+	u8 link_id_tx;
+	u8 link_id_rx;
+	u8 reserved[3];
+} __packed;
+
+/* WMI_TDM_DISCONNECT_EVENTID */
+struct wmi_tdm_disconnect_event {
+	u8 cid;
+	u8 reserved[3];
+} __packed;
 #endif /* __WILOCITY_WMI_H__ */

@@ -576,6 +576,10 @@ static int wil_rx_crypto_check_edma(struct wil6210_priv *wil,
 	if (use_rx_hw_reordering)
 		return 0;
 
+	/* in full slave mode, handshake/key management handled by master */
+	if (slave_mode == 2)
+		return 0;
+
 	st = wil_skb_rxstatus(skb);
 
 	cid = wil_rx_status_get_cid(st);
@@ -1256,6 +1260,14 @@ int wil_tx_sring_handler(struct wil6210_priv *wil,
 					if (stats)
 						stats->tx_errors++;
 				}
+
+				if (stats) {
+					atomic_dec(
+						&stats->tx_pend_packets);
+					atomic_sub(skb->len,
+						   &stats->tx_pend_bytes);
+				}
+
 				wil_consume_skb(skb, msg.status == 0);
 			}
 			memset(ctx, 0, sizeof(*ctx));
@@ -1403,6 +1415,9 @@ static int __wil_tx_ring_tso_edma(struct wil6210_priv *wil,
 	int tcp_hdr_len;
 	int skb_net_hdr_len;
 	int mss = skb_shinfo(skb)->gso_size;
+	u8 cid = txdata->cid;
+	struct wil_net_stats *stats = (cid < WIL6210_MAX_CID) ?
+		&wil->sta[cid].stats : NULL;
 
 	wil_dbg_txrx(wil, "tx_ring_tso: %d bytes to ring %d\n", skb->len,
 		     ring_index);
@@ -1499,6 +1514,11 @@ static int __wil_tx_ring_tso_edma(struct wil6210_priv *wil,
 	 * committing them to HW
 	 */
 	wmb();
+
+	if (stats) {
+		atomic_inc(&stats->tx_pend_packets);
+		atomic_add(skb->len, &stats->tx_pend_bytes);
+	}
 
 	wil_w(wil, ring->hwtail, ring->swhead);
 

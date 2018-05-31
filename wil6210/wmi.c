@@ -3929,6 +3929,7 @@ int wil_wmi_tx_desc_ring_add(struct wil6210_vif *vif, int ring_id, int cid,
 	spin_lock_bh(&txdata->lock);
 	ring->hwtail = le32_to_cpu(reply.evt.ring_tail_ptr);
 	txdata->mid = vif->mid;
+	txdata->cid = cid;
 	txdata->enabled = 1;
 	spin_unlock_bh(&txdata->lock);
 
@@ -3973,6 +3974,7 @@ int wil_wmi_bcast_desc_ring_add(struct wil6210_vif *vif, int ring_id)
 	spin_lock_bh(&txdata->lock);
 	ring->hwtail = le32_to_cpu(reply.evt.ring_tail_ptr);
 	txdata->mid = vif->mid;
+	txdata->cid = U8_MAX;
 	txdata->enabled = 1;
 	spin_unlock_bh(&txdata->lock);
 

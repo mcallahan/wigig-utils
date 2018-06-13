@@ -489,6 +489,9 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 		atomic_inc(&wil->connected_vifs);
 	wil_update_cid_net_queues_bh(wil, vif, evt->cid, false);
 
+	/* enable PBSS for data path support (no broadcast VRING) */
+	vif->pbss = true;
+
 	wil_slave_evt_connect(vif, evt->link_id_tx, evt->link_id_rx,
 			      evt->mac_addr, evt->cid);
 out:

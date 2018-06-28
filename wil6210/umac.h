@@ -32,10 +32,7 @@
 #define WIL_UMAC_NODE_HASH_BITS 5
 
 /* used by mgmt_rx/mgmt_tx */
-enum {
-	WIL_UMAC_FRAME_NOT_HANDLED,
-	WIL_UMAC_FRAME_CONSUMED
-};
+#define WIL_UMAC_FRAME_NOT_HANDLED 1
 
 struct wil6210_priv;
 struct wil_umac;
@@ -140,18 +137,18 @@ struct wil_umac_ops {
 
 	/* let UMAC handle received management frame.
 	 * node can be found by TA/RA inside frame.
-	 * returns UMAC_FRAME_CONSUMED in case the frame was handled by UMAC or
-	 * UMAC_FRAME_NOT_HANDLED which means driver/kernel/userspace needs to
-	 * handle this frame.
+	 * Returns 0 for success, negative value for failure, in case the frame
+	 * was handled by UMAC. Otherwise returns UMAC_FRAME_NOT_HANDLED which
+	 * means driver/kernel/userspace needs to handle this frame.
 	 */
 	int (*mgmt_rx)(void *vap_handle, s8 rssi, u8 channel,
 		       struct ieee80211_mgmt *frame, size_t len);
 
 	/* let UMAC transmit management frame originated from userspace.
 	 * node can be found by TA/RA inside frame.
-	 * returns UMAC_FRAME_CONSUMED in case the frame was handled by UMAC or
-	 * UMAC_FRAME_NOT_HANDLED which means driver needs to transmit this
-	 * frame.
+	 * Returns 0 for success, negative value for failure, in case the frame
+	 * was handled by UMAC. Otherwise returns UMAC_FRAME_NOT_HANDLED which
+	 * means driver needs to transmit this frame.
 	 */
 	int (*mgmt_tx)(void *vap_handle, const u8 *frame, size_t len);
 
@@ -197,6 +194,7 @@ struct wil_umac_rops {
 struct wil_umac {
 	struct wil6210_priv *wil;
 	u8 permanent_mac[ETH_ALEN];
+	bool disable_ap_sme;
 	size_t max_sta;
 	size_t max_vaps;
 	struct wil_umac_rops rops;
@@ -230,7 +228,8 @@ struct wil_umac_platdata {
  * returns opaque umac handle.
  */
 void *wil_umac_init(struct wil6210_priv *wil, u8 *permanent_mac,
-		    size_t max_vaps, size_t max_sta, struct wil_umac_ops *ops,
+		    size_t max_vaps, size_t max_sta, bool disable_ap_sme,
+		    struct wil_umac_ops *ops,
 		    const struct wil_umac_rops *rops);
 
 #endif /* WIL6210_UMAC_H */

@@ -161,6 +161,7 @@ static struct wil_umac_node *wil_umac_node_alloc(struct wil_umac_vap *vap,
 	if (!node)
 		return NULL;
 
+	memset(node, 0, sizeof(struct wil_umac_node));
 	node->umac = umac;
 	node->vap = vap;
 	kref_init(&node->refcount);
@@ -208,7 +209,7 @@ static void wil_umac_node_change_state(struct wil_umac_node *node,
 }
 
 static int wil_umac_send_assoc_resp(struct wil_umac_vap *vap, const u8 *mac,
-				    u8 aid, u16 status_code)
+				    u8 aid, u16 status_code, bool reassoc)
 {
 	struct wil_umac *umac = vap->umac;
 	struct ieee80211_mgmt *assoc_resp;
@@ -220,8 +221,10 @@ static int wil_umac_send_assoc_resp(struct wil_umac_vap *vap, const u8 *mac,
 	if (!assoc_resp)
 		return -ENOMEM;
 
-	fc = IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_ASSOC_RESP |
-	     IEEE80211_FCTL_FROMDS;
+	fc = IEEE80211_FTYPE_MGMT;
+	fc |= (reassoc ? IEEE80211_STYPE_REASSOC_RESP :
+	       IEEE80211_STYPE_ASSOC_RESP);
+
 	assoc_resp->frame_control = cpu_to_le16(fc);
 
 	ether_addr_copy(assoc_resp->da, mac);
@@ -247,12 +250,55 @@ static int wil_umac_send_assoc_resp(struct wil_umac_vap *vap, const u8 *mac,
 	kfree(assoc_resp);
 
 	if (rc)
-		wil_err(umac->wil, "fail to send assoc response, mac %pM aid %d status_code %d (rc %d)\n",
-			mac, aid, status_code, rc);
+		wil_err(umac->wil, "fail to send %sassoc response, mac %pM aid %d status_code %d (rc %d)\n",
+			reassoc ? "re" : "", mac, aid, status_code, rc);
 	else
 		wil_dbg_umac(umac->wil,
-			     "assoc response sent, mac %pM aid %d status_code %d\n",
-			     mac, aid, status_code);
+			     "%sassoc response sent, mac %pM aid %d status_code %d\n",
+			     reassoc ? "re" : "", mac, aid, status_code);
+
+	return rc;
+}
+
+static int wil_umac_send_auth(struct wil_umac_vap *vap, const u8 *mac,
+			      u16 auth_alg, u16 auth_transaction,
+			      u16 status_code)
+{
+	struct wil_umac *umac = vap->umac;
+	struct ieee80211_mgmt *auth;
+	u16 fc;
+	int rc;
+
+	auth = kzalloc(WIL_UMAC_MAX_FRAME_SIZE, GFP_KERNEL);
+	if (!auth)
+		return -ENOMEM;
+
+	fc = IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_AUTH;
+
+	auth->frame_control = cpu_to_le16(fc);
+
+	ether_addr_copy(auth->da, mac);
+	ether_addr_copy(auth->sa, vap->ndev->dev_addr);
+	ether_addr_copy(auth->bssid, vap->ndev->dev_addr);
+
+	auth->u.auth.auth_alg = cpu_to_le16(auth_alg);
+	auth->u.auth.auth_transaction = cpu_to_le16(auth_transaction);
+	auth->u.auth.status_code = cpu_to_le16(status_code);
+
+	rc = umac->rops.mgmt_tx(vap->driver_vap_ctx, (u8 *)auth,
+				offsetof(struct ieee80211_mgmt,
+					 u.auth.variable));
+
+	kfree(auth);
+
+	if (rc)
+		wil_err(umac->wil,
+			"fail to send auth frame, mac %pM auth_alg %d auth_transaction %d status_code %d (rc %d)\n",
+			mac, auth_alg, auth_transaction, status_code, rc);
+	else
+		wil_dbg_umac(umac->wil,
+			     "auth frame sent, mac %pM auth_alg %d auth_transaction %d status_code %d\n",
+			     mac, auth_alg, auth_transaction, status_code);
 
 	return rc;
 }
@@ -269,8 +315,7 @@ static int wil_umac_send_probe_resp(struct wil_umac_vap *vap, const u8 *mac)
 	if (!probe_resp)
 		return -ENOMEM;
 
-	fc = IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_PROBE_RESP |
-	     IEEE80211_FCTL_FROMDS;
+	fc = IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_PROBE_RESP;
 	probe_resp->frame_control = cpu_to_le16(fc);
 
 	ether_addr_copy(probe_resp->da, mac);
@@ -315,8 +360,7 @@ static int wil_umac_send_disassoc(struct wil_umac_vap *vap, const u8 *mac,
 	if (!disassoc)
 		return -ENOMEM;
 
-	fc = IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_DISASSOC |
-	     IEEE80211_FCTL_FROMDS;
+	fc = IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_DISASSOC;
 	disassoc->frame_control = cpu_to_le16(fc);
 
 	ether_addr_copy(disassoc->da, mac);
@@ -734,12 +778,12 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 	if (!wil_umac_is_valid_bssid(vap, frame->bssid, false)) {
 		wil_dbg_umac(umac->wil, "wrong bssid (%pM). ignoring\n",
 			     frame->bssid);
-		return WIL_UMAC_FRAME_CONSUMED;
+		return 0;
 	}
 
 	if (len < offsetof(struct ieee80211_mgmt, u.assoc_req.variable)) {
 		wil_err(umac->wil, "assoc req frame too short %zu\n", len);
-		return WIL_UMAC_FRAME_CONSUMED;
+		return 0;
 	}
 
 	ies = frame->u.assoc_req.variable;
@@ -749,8 +793,8 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 	if (!wil_umac_is_ssid_match(vap, ssid_ie, false)) {
 		wil_info(umac->wil, "assoc req ssid mismatch\n");
 		wil_umac_send_assoc_resp(vap, sa, 0,
-					 WLAN_STATUS_REQUEST_DECLINED);
-		return WIL_UMAC_FRAME_CONSUMED;
+					 WLAN_STATUS_REQUEST_DECLINED, false);
+		return 0;
 	}
 
 	rsn_ie = cfg80211_find_ie(WLAN_EID_RSN, ies, ies_len);
@@ -758,13 +802,15 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 		if (!vap->privacy) {
 			wil_err(umac->wil, "assoc req rsn not expected\n");
 			wil_umac_send_assoc_resp(vap, sa, 0,
-						 WLAN_STATUS_REQUEST_DECLINED);
-			return WIL_UMAC_FRAME_CONSUMED;
+						 WLAN_STATUS_REQUEST_DECLINED,
+						 false);
+			return 0;
 		}
 		if (!wil_umac_rsn_valid(vap, rsn_ie)) {
 			wil_umac_send_assoc_resp(vap, sa, 0,
-						 WLAN_STATUS_INVALID_IE);
-			return WIL_UMAC_FRAME_CONSUMED;
+						 WLAN_STATUS_INVALID_IE,
+						 false);
+			return 0;
 		}
 	}
 	if (!rsn_ie && vap->privacy)
@@ -778,11 +824,19 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 			 state2string(node->state));
 		if (node->state == WIL_UMAC_NODE_STATE_ASSOCIATED ||
 		    node->state == WIL_UMAC_NODE_STATE_8021X_OPEN) {
+			if (umac->disable_ap_sme) {
+				/* in userspace sme, send the frame to
+				 * userspace, to clean its state
+				 */
+				mutex_unlock(&umac->mutex);
+				return WIL_UMAC_FRAME_NOT_HANDLED;
+			}
+
 			wil_umac_node_dealloc(node);
 			mutex_unlock(&umac->mutex);
 			wil_umac_send_disassoc(vap, sa,
 					       WLAN_REASON_UNSPECIFIED);
-			return WIL_UMAC_FRAME_CONSUMED;
+			return 0;
 		}
 		goto out;
 	}
@@ -792,21 +846,10 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 		wil_err(umac->wil, "cannot allocate node\n");
 		mutex_unlock(&umac->mutex);
 		wil_umac_send_assoc_resp(
-			vap, sa, 0, WLAN_STATUS_AP_UNABLE_TO_HANDLE_NEW_STA);
-		return WIL_UMAC_FRAME_CONSUMED;
+			vap, sa, 0, WLAN_STATUS_AP_UNABLE_TO_HANDLE_NEW_STA,
+			false);
+		return 0;
 	}
-
-	aid = wil_umac_aid_allocate(vap);
-	if (!aid) {
-		wil_err(umac->wil, "cannot allocate aid\n");
-		mutex_unlock(&umac->mutex);
-		wil_umac_send_assoc_resp(
-			vap, sa, 0, WLAN_STATUS_AP_UNABLE_TO_HANDLE_NEW_STA);
-		if (!wil_umac_relock(umac, node, sa))
-			goto out;
-		goto node_dealloc;
-	}
-	node->aid = aid;
 
 	/* update node ies */
 	ies_len = min_t(size_t, ies_len, WIL_UMAC_MAX_FRAME_SIZE);
@@ -817,19 +860,40 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 
 	wil_umac_node_change_state(node, WIL_UMAC_NODE_STATE_ASSOCIATING);
 
+	now = ktime_get();
+	node->stats.rx.last_activity = now;
+	node->last_mgmt = now;
+
+	if (umac->disable_ap_sme) {
+		wil_dbg_umac(umac->wil, "node %pM added\n", sa);
+		mutex_unlock(&umac->mutex);
+		return WIL_UMAC_FRAME_NOT_HANDLED;
+	}
+	aid = wil_umac_aid_allocate(vap);
+	if (!aid) {
+		wil_err(umac->wil, "cannot allocate aid\n");
+		mutex_unlock(&umac->mutex);
+		wil_umac_send_assoc_resp(
+			vap, sa, 0,
+			WLAN_STATUS_AP_UNABLE_TO_HANDLE_NEW_STA,
+			false);
+		if (!wil_umac_relock(umac, node, sa))
+			goto out;
+		goto node_dealloc;
+	}
+	node->aid = aid;
+
 	mutex_unlock(&umac->mutex);
-	rc = wil_umac_send_assoc_resp(vap, sa, aid, WLAN_STATUS_SUCCESS);
+	rc = wil_umac_send_assoc_resp(vap, sa, aid,
+				      WLAN_STATUS_SUCCESS, false);
 	if (!wil_umac_relock(umac, node, sa))
 		/* node is disconnecting and will be freed elsewhere */
 		goto out;
 	if (rc)
 		goto node_dealloc;
 
-	now = ktime_get();
 	node->assoc_ts = now;
-	node->stats.rx.last_activity = now;
 	node->stats.tx.last_activity = now;
-	node->last_mgmt = now;
 
 	if (vap->privacy)
 		wil_umac_node_change_state(node,
@@ -850,68 +914,192 @@ static int wil_umac_mgmt_rx_assoc_req(struct wil_umac_vap *vap, s8 rssi,
 
 	wil_dbg_umac(umac->wil, "node %pM added. aid %d\n", sa, aid);
 
-	return WIL_UMAC_FRAME_CONSUMED;
+	return 0;
 
 node_dealloc:
 	wil_umac_node_dealloc(node);
 out:
 	mutex_unlock(&umac->mutex);
-	return WIL_UMAC_FRAME_CONSUMED;
+	return 0;
 }
 
-static int wil_umac_mgmt_rx_disassoc(struct wil_umac_vap *vap,
-				     struct ieee80211_mgmt *frame, size_t len)
+static int wil_umac_mgmt_rx_reassoc_req(struct wil_umac_vap *vap, s8 rssi,
+					struct ieee80211_mgmt *frame,
+					size_t len)
 {
 	struct wil_umac *umac = vap->umac;
 	struct wil_umac_node *node;
-	u16 reason;
+	size_t ies_len;
+	u8 *ies, *sa = frame->sa;
+	const u8 *rsn_ie, *ssid_ie;
+	const u8 *md_ie, *ft_ie;
+	ktime_t now;
 
 	/* frame validation */
 
 	if (!wil_umac_is_valid_bssid(vap, frame->bssid, false)) {
 		wil_dbg_umac(umac->wil, "wrong bssid (%pM). ignoring\n",
 			     frame->bssid);
-		return WIL_UMAC_FRAME_CONSUMED;
+		return 0;
 	}
 
-	if (len < offsetof(struct ieee80211_mgmt, u.disassoc.reason_code) +
-	    sizeof(frame->u.disassoc.reason_code)) {
-		wil_dbg_umac(umac->wil, "disassoc frame too short %zu\n", len);
-		return WIL_UMAC_FRAME_CONSUMED;
+	if (len < offsetof(struct ieee80211_mgmt, u.reassoc_req.variable)) {
+		wil_err(umac->wil, "reassoc req frame too short %zu\n", len);
+		return 0;
+	}
+
+	if (!umac->disable_ap_sme) {
+		wil_err(umac->wil, "reassoc req not supported in ap_sme\n");
+		wil_umac_send_assoc_resp(vap, sa, 1,
+					 WLAN_STATUS_REQUEST_DECLINED,
+					 true);
+		return 0;
+	}
+
+	ies = frame->u.reassoc_req.variable;
+	ies_len = len - offsetof(struct ieee80211_mgmt, u.reassoc_req.variable);
+
+	mutex_lock(&umac->mutex);
+
+	node = wil_umac_node_find(umac, sa);
+	if (!node) {
+		wil_err(umac->wil,
+			"reassoc req is supported only in FT roam\n");
+		mutex_unlock(&umac->mutex);
+		wil_umac_send_assoc_resp(vap, sa, 1,
+					 WLAN_STATUS_REQUEST_DECLINED,
+					 true);
+		return 0;
+	}
+
+	if (node->state != WIL_UMAC_NODE_STATE_AUTHENTICATED) {
+		wil_err(umac->wil, "reassoc req while node in state %s\n",
+			state2string(node->state));
+		goto out;
+	}
+
+	ssid_ie = cfg80211_find_ie(WLAN_EID_SSID, ies, ies_len);
+	if (!wil_umac_is_ssid_match(vap, ssid_ie, false)) {
+		wil_err(umac->wil, "reassoc req ssid mismatch\n");
+		goto out;
+	}
+
+	rsn_ie = cfg80211_find_ie(WLAN_EID_RSN, ies, ies_len);
+	if (rsn_ie) {
+		if (!vap->privacy) {
+			wil_err(umac->wil, "reassoc req rsn not expected\n");
+			goto out;
+		}
+		if (!wil_umac_rsn_valid(vap, rsn_ie))
+			goto out;
+	} else if (vap->privacy) {
+		wil_err(umac->wil,
+			"rsn ie must be included in reassoc frame when privacy is on\n");
+		goto out;
+	}
+
+	/* check mde and fte ies in reassoc req frame */
+	md_ie = cfg80211_find_ie(WLAN_EID_MOBILITY_DOMAIN, ies, ies_len);
+	if (!md_ie) {
+		wil_err(umac->wil,
+			"mobility domain (MD) ie was not found in reassoc req\n");
+		goto out;
+	}
+
+	ft_ie = cfg80211_find_ie(WLAN_EID_FAST_BSS_TRANSITION, ies, ies_len);
+	if (!ft_ie) {
+		wil_err(umac->wil,
+			"fast transition (FT) ie was not found in reassoc req\n");
+		goto out;
+	}
+
+	/* update node ies */
+	ies_len = min_t(size_t, ies_len, WIL_UMAC_MAX_FRAME_SIZE);
+	memcpy(node->ies, ies, ies_len);
+	node->ies_len = ies_len;
+
+	wil_umac_node_update_rssi(node, rssi);
+	now = ktime_get();
+	node->stats.rx.last_activity = now;
+	node->last_mgmt = now;
+
+	wil_umac_node_change_state(node, WIL_UMAC_NODE_STATE_ASSOCIATING);
+out:
+	mutex_unlock(&umac->mutex);
+
+	return WIL_UMAC_FRAME_NOT_HANDLED;
+}
+
+/* this function handle receiving deauth and disassoc frames */
+static int wil_umac_mgmt_rx_disassoc(struct wil_umac_vap *vap,
+				     struct ieee80211_mgmt *frame, size_t len,
+				     bool deauth)
+{
+	struct wil_umac *umac = vap->umac;
+	struct wil_umac_node *node;
+	u16 reason;
+	size_t min_len;
+
+	/* frame validation */
+	if (!wil_umac_is_valid_bssid(vap, frame->bssid, false)) {
+		wil_dbg_umac(umac->wil, "wrong bssid (%pM). ignoring\n",
+			     frame->bssid);
+		return 0;
+	}
+
+	if (deauth)
+		min_len = offsetof(struct ieee80211_mgmt,
+				   u.deauth.reason_code) +
+				   sizeof(frame->u.deauth.reason_code);
+	else
+		min_len = offsetof(struct ieee80211_mgmt,
+				   u.disassoc.reason_code) +
+				   sizeof(frame->u.disassoc.reason_code);
+
+	if (len < min_len) {
+		wil_dbg_umac(umac->wil, "frame too short %zu\n", len);
+		return 0;
 	}
 
 	mutex_lock(&umac->mutex);
 
 	node = wil_umac_node_find(umac, frame->sa);
 	if (!node) {
-		wil_dbg_umac(umac->wil, "disassoc from unknown sta (%pM)\n",
-			     frame->sa);
+		wil_dbg_umac(umac->wil, "%s from unknown sta (%pM)\n",
+			     deauth ? "deauth" : "disassoc", frame->sa);
 		goto out;
 	}
 
 	if (node->state == WIL_UMAC_NODE_STATE_DISCONNECTING) {
 		wil_dbg_umac(umac->wil, "node %pM already disassociating\n",
 			     frame->sa);
-		goto out;
+		mutex_unlock(&umac->mutex);
+		return WIL_UMAC_FRAME_NOT_HANDLED;
 	}
 
 	wil_umac_node_change_state(node, WIL_UMAC_NODE_STATE_DISCONNECTING);
 
-	reason = le16_to_cpu(frame->u.disassoc.reason_code);
+	if (deauth)
+		reason = le16_to_cpu(frame->u.deauth.reason_code);
+	else
+		reason = le16_to_cpu(frame->u.disassoc.reason_code);
+
 	wil_dbg_umac(umac->wil, "node %pM disassociating, reason %d\n",
 		     frame->sa, reason);
 
 	mutex_unlock(&umac->mutex);
 
-	umac->rops.del_station(vap->driver_vap_ctx, frame->sa, reason);
+	if (umac->disable_ap_sme)
+		return WIL_UMAC_FRAME_NOT_HANDLED;
 
+	umac->rops.del_station(vap->driver_vap_ctx, frame->sa, reason);
 	/* node object is gone (freed in sta_deleted) */
 
-	return WIL_UMAC_FRAME_CONSUMED;
+	return 0;
 
 out:
 	mutex_unlock(&umac->mutex);
-	return WIL_UMAC_FRAME_CONSUMED;
+	return 0;
 }
 
 static int wil_umac_mgmt_rx_probe_req(struct wil_umac_vap *vap,
@@ -927,13 +1115,13 @@ static int wil_umac_mgmt_rx_probe_req(struct wil_umac_vap *vap,
 	if (!wil_umac_is_valid_bssid(vap, frame->bssid, true)) {
 		wil_dbg_umac(umac->wil, "wrong bssid (%pM). ignoring\n",
 			     frame->bssid);
-		return WIL_UMAC_FRAME_CONSUMED;
+		return 0;
 	}
 
 	if (len < offsetof(struct ieee80211_mgmt, u.probe_req.variable)) {
 		wil_dbg_umac(umac->wil, "probe req frame too short %zu\n",
 			     len);
-		return WIL_UMAC_FRAME_CONSUMED;
+		return 0;
 	}
 
 	ies = frame->u.probe_req.variable;
@@ -945,13 +1133,131 @@ static int wil_umac_mgmt_rx_probe_req(struct wil_umac_vap *vap,
 		ssid_ie = cfg80211_find_ie(WLAN_EID_SSID_LIST, ies, ies_len);
 		if (!wil_umac_is_ssid_list_match(vap, ssid_ie)) {
 			wil_dbg_umac(umac->wil, "probe req ssid mismatch\n");
-			return WIL_UMAC_FRAME_CONSUMED;
+			return 0;
 		}
 	}
 
 	wil_umac_send_probe_resp(vap, frame->sa);
 
-	return WIL_UMAC_FRAME_CONSUMED;
+	return 0;
+}
+
+static int wil_umac_mgmt_rx_auth(struct wil_umac_vap *vap, s8 rssi,
+				 struct ieee80211_mgmt *frame, size_t len)
+{
+	struct wil_umac *umac = vap->umac;
+	struct wil_umac_node *node;
+	size_t ies_len;
+	u8 *ies, *sa = frame->sa;
+	const u8 *md_ie, *ft_ie;
+	u16 auth_alg, auth_transaction, status_code;
+	ktime_t now;
+
+	/* frame validation */
+	if (!wil_umac_is_valid_bssid(vap, frame->bssid, false)) {
+		wil_dbg_umac(umac->wil, "wrong bssid (%pM). ignoring\n",
+			     frame->bssid);
+		return 0;
+	}
+
+	if (len < offsetof(struct ieee80211_mgmt, u.auth.variable)) {
+		wil_err(umac->wil, "auth frame too short %zu\n", len);
+		return 0;
+	}
+
+	auth_alg = le16_to_cpu(frame->u.auth.auth_alg);
+	if (auth_alg != WLAN_AUTH_FT) {
+		wil_err(umac->wil, "auth frame supports only FT auth. received auth %d\n",
+			auth_alg);
+		wil_umac_send_auth(vap, sa, auth_alg, 2,
+				   WLAN_REASON_UNSPECIFIED);
+		return 0;
+	}
+
+	auth_transaction = le16_to_cpu(frame->u.auth.auth_transaction);
+	if (auth_transaction != 1) {
+		wil_err(umac->wil, "auth frame: invalid auth_transaction %d\n",
+			auth_transaction);
+		wil_umac_send_auth(vap, sa, WLAN_AUTH_FT, 2,
+				   WLAN_REASON_UNSPECIFIED);
+		return 0;
+	}
+
+	status_code = le16_to_cpu(frame->u.auth.status_code);
+	if (status_code != 0) {
+		wil_err(umac->wil, "auth frame: status_code %d. ignore\n",
+			status_code);
+		return 0;
+	}
+
+	if (!umac->disable_ap_sme) {
+		wil_err(umac->wil, "auth frame not supported in ap_sme\n");
+		wil_umac_send_auth(vap, sa, WLAN_AUTH_FT, 2,
+				   WLAN_REASON_UNSPECIFIED);
+		return 0;
+	}
+
+	ies = frame->u.auth.variable;
+	ies_len = len - offsetof(struct ieee80211_mgmt, u.auth.variable);
+
+	/* check mde and fte ies in auth req frame */
+	md_ie = cfg80211_find_ie(WLAN_EID_MOBILITY_DOMAIN, ies, ies_len);
+	if (!md_ie) {
+		wil_err(umac->wil,
+			"mobility domain (MDE) ie was not found in auth req\n");
+		wil_umac_send_auth(vap, sa, WLAN_AUTH_FT, 2,
+				   WLAN_REASON_UNSPECIFIED);
+		return 0;
+	}
+
+	ft_ie = cfg80211_find_ie(WLAN_EID_FAST_BSS_TRANSITION, ies, ies_len);
+	if (!ft_ie) {
+		wil_err(umac->wil,
+			"fast transition (FT) ie was not found in auth req\n");
+		wil_umac_send_auth(vap, sa, WLAN_AUTH_FT, 2,
+				   WLAN_REASON_UNSPECIFIED);
+		return 0;
+	}
+
+	mutex_lock(&umac->mutex);
+
+	node = wil_umac_node_find(umac, sa);
+	if (node) {
+		wil_err(umac->wil, "auth req while node in state %s\n",
+			state2string(node->state));
+		/* in disable_ap_sme, send the frame to
+		 * userspace, to clean its state
+		 */
+		mutex_unlock(&umac->mutex);
+		return WIL_UMAC_FRAME_NOT_HANDLED;
+	}
+
+	node = wil_umac_node_alloc(vap, sa);
+	if (!node) {
+		wil_err(umac->wil, "cannot allocate node\n");
+		mutex_unlock(&umac->mutex);
+		wil_umac_send_auth(vap, sa, WLAN_AUTH_FT, 2,
+				   WLAN_STATUS_REQUEST_DECLINED);
+		return 0;
+	}
+
+	/* update node ies */
+	ies_len = min_t(size_t, ies_len, WIL_UMAC_MAX_FRAME_SIZE);
+	memcpy(node->ies, ies, ies_len);
+	node->ies_len = ies_len;
+
+	node->auth_type = auth_alg;
+	wil_umac_node_update_rssi(node, rssi);
+
+	wil_umac_node_change_state(node, WIL_UMAC_NODE_STATE_AUTHENTICATING);
+
+	now = ktime_get();
+	node->stats.rx.last_activity = now;
+	node->last_mgmt = now;
+
+	mutex_unlock(&umac->mutex);
+
+	return WIL_UMAC_FRAME_NOT_HANDLED;
 }
 
 static int wil_umac_mgmt_rx(void *vap_handle, s8 rssi, u8 channel,
@@ -986,16 +1292,19 @@ static int wil_umac_mgmt_rx(void *vap_handle, s8 rssi, u8 channel,
 		rc = wil_umac_mgmt_rx_assoc_req(vap, rssi, frame, len);
 		break;
 	case IEEE80211_STYPE_REASSOC_REQ:
+		rc = wil_umac_mgmt_rx_reassoc_req(vap, rssi, frame, len);
 		break;
 	case IEEE80211_STYPE_PROBE_REQ:
 		rc = wil_umac_mgmt_rx_probe_req(vap, frame, len);
 		break;
 	case IEEE80211_STYPE_DISASSOC:
-		rc = wil_umac_mgmt_rx_disassoc(vap, frame, len);
+		rc = wil_umac_mgmt_rx_disassoc(vap, frame, len, false);
 		break;
 	case IEEE80211_STYPE_AUTH:
+		rc = wil_umac_mgmt_rx_auth(vap, rssi, frame, len);
 		break;
 	case IEEE80211_STYPE_DEAUTH:
+		rc = wil_umac_mgmt_rx_disassoc(vap, frame, len, true);
 		break;
 	case IEEE80211_STYPE_ACTION:
 		/* note: most action frames (Class 3) allowed only when
@@ -1009,9 +1318,298 @@ static int wil_umac_mgmt_rx(void *vap_handle, s8 rssi, u8 channel,
 	return rc;
 }
 
-static int wil_umac_mgmt_tx(void *vap_handle, const u8 *frame, size_t len)
+static int wil_umac_mgmt_tx_assoc_resp(struct wil_umac_vap *vap,
+				       struct ieee80211_mgmt *frame,
+				       size_t len, bool reassoc)
 {
-	return 0;
+	struct wil_umac *umac = vap->umac;
+	struct wil_umac_node *node;
+	u8 aid, *da = frame->da;
+	ktime_t now;
+	u16 status_code;
+	int rc;
+
+	if (len < offsetof(struct ieee80211_mgmt, u.assoc_resp.variable)) {
+		wil_err(umac->wil, "%sassoc resp frame too short %zu\n",
+			reassoc ? "re" : "", len);
+		return -EINVAL;
+	}
+
+	aid = le16_to_cpu(frame->u.assoc_resp.aid);
+	status_code = le16_to_cpu(frame->u.assoc_resp.status_code);
+
+	mutex_lock(&umac->mutex);
+
+	node = wil_umac_node_find(umac, da);
+	if (!node) {
+		wil_err(umac->wil, "%sassoc resp to %pM. node not found\n",
+			reassoc ? "re" : "", da);
+		goto fail;
+	}
+
+	if (node->state != WIL_UMAC_NODE_STATE_ASSOCIATING) {
+		wil_err(umac->wil, "%sassoc resp while node in state %s\n",
+			reassoc ? "re" : "", state2string(node->state));
+		goto fail;
+	}
+
+	if (reassoc && node->auth_type != WLAN_AUTH_FT) {
+		wil_err(umac->wil,
+			"reassoc resp to %pM. reassoc supported only with FT authentication\n",
+			da);
+		goto fail;
+	}
+
+	if (!reassoc && node->auth_type == WLAN_AUTH_FT) {
+		wil_err(umac->wil,
+			"assoc resp to %pM with FT auth. assoc is not supported with FT authentication\n",
+			da);
+		goto fail;
+	}
+
+	now = ktime_get();
+	if (status_code == 0) {
+		if (vap->privacy)
+			wil_umac_node_change_state(
+				node,
+				WIL_UMAC_NODE_STATE_ASSOCIATED);
+		else
+			wil_umac_node_change_state(
+				node,
+				WIL_UMAC_NODE_STATE_8021X_OPEN);
+
+		node->aid = aid;
+		node->assoc_ts = now;
+		node->stats.tx.last_activity = now;
+	} else {
+		wil_err(umac->wil,
+			"%sassoc resp with fail status %d\n",
+			reassoc ? "re" : "", status_code);
+		if (!reassoc) {
+			wil_umac_node_dealloc(node);
+		} else {
+			node->stats.tx.last_activity = now;
+			wil_umac_node_change_state(
+				node, WIL_UMAC_NODE_STATE_AUTHENTICATED);
+		}
+	}
+
+	mutex_unlock(&umac->mutex);
+
+	rc = umac->rops.mgmt_tx(vap->driver_vap_ctx, (u8 *)frame,
+				len);
+	if (rc)
+		wil_err(umac->wil, "fail to transmit %sassoc response, da %pM (rc %d)\n",
+			reassoc ? "re" : "", da, rc);
+	else
+		wil_dbg_umac(umac->wil,
+			     "transmit %sassoc response, da %pM aid %d status_code %d\n",
+			     reassoc ? "re" : "", da, aid, status_code);
+
+	return rc;
+
+fail:
+	mutex_unlock(&umac->mutex);
+
+	return -EINVAL;
+}
+
+static int wil_umac_mgmt_tx_disassoc(struct wil_umac_vap *vap,
+				     struct ieee80211_mgmt *frame,
+				     size_t len, bool deauth)
+{
+	struct wil_umac *umac = vap->umac;
+	struct wil_umac_node *node;
+	u8 *da = frame->da;
+	u16 reason;
+	int rc;
+	size_t min_len;
+
+	if (deauth)
+		min_len = offsetof(struct ieee80211_mgmt,
+				   u.deauth.reason_code) +
+				   sizeof(frame->u.deauth.reason_code);
+	else
+		min_len = offsetof(struct ieee80211_mgmt,
+				   u.disassoc.reason_code) +
+				   sizeof(frame->u.disassoc.reason_code);
+
+	if (len < min_len) {
+		wil_dbg_umac(umac->wil, "%s frame too short %zu\n",
+			     deauth ? "deauth" : "disassoc", len);
+		return 0;
+	}
+
+	mutex_lock(&umac->mutex);
+
+	if (deauth)
+		reason = le16_to_cpu(frame->u.deauth.reason_code);
+	else
+		reason = le16_to_cpu(frame->u.disassoc.reason_code);
+
+	wil_dbg_umac(umac->wil, "node %pM disassociating, reason %d\n",
+		     frame->da, reason);
+
+	if (!is_broadcast_ether_addr(frame->da)) {
+		node = wil_umac_node_find(umac, frame->da);
+		if (!node) {
+			wil_dbg_umac(umac->wil, "disassoc unknown sta (%pM)\n",
+				     frame->da);
+
+			mutex_unlock(&umac->mutex);
+			/* do not transmit the frame to its da */
+			return 0;
+		}
+
+		wil_umac_node_dealloc(node);
+	} else {
+		/* disconnect all */
+		do {
+			struct wil_umac_node *node;
+
+			node = wil_umac_first_connected_node(umac);
+			if (!node)
+				break;
+			wil_umac_node_dealloc(node);
+		} while (1);
+	}
+	mutex_unlock(&umac->mutex);
+
+	/* transmit the frame to its da */
+	rc = umac->rops.mgmt_tx(vap->driver_vap_ctx, (u8 *)frame, len);
+	if (rc)
+		wil_err(umac->wil,
+			"fail to transmit %s frame, da %pM (rc %d)\n",
+			deauth ? "deauth" : "disassoc", da, rc);
+	else
+		wil_dbg_umac(umac->wil,
+			     "transmit %s frame, da %pM\n",
+			     deauth ? "deauth" : "disassoc", da);
+
+	return rc;
+}
+
+static int wil_umac_mgmt_tx_auth(struct wil_umac_vap *vap,
+				 struct ieee80211_mgmt *frame,
+				 size_t len)
+{
+	struct wil_umac *umac = vap->umac;
+	struct wil_umac_node *node;
+	u8 *da = frame->da;
+	int rc;
+	u16 status_code, auth_transaction;
+	ktime_t now;
+
+	if (len < offsetof(struct ieee80211_mgmt, u.auth.variable)) {
+		wil_err(umac->wil, "auth resp frame too short %zu\n", len);
+		return -EINVAL;
+	}
+
+	status_code = le16_to_cpu(frame->u.auth.status_code);
+	auth_transaction = le16_to_cpu(frame->u.auth.auth_transaction);
+
+	mutex_lock(&umac->mutex);
+
+	node = wil_umac_node_find(umac, da);
+	if (!node) {
+		wil_err(umac->wil, "auth resp to %pM. node not found\n", da);
+		mutex_unlock(&umac->mutex);
+		return -EINVAL;
+	}
+
+	if (node->state != WIL_UMAC_NODE_STATE_AUTHENTICATING) {
+		wil_err(umac->wil, "auth resp while node in state %s\n",
+			state2string(node->state));
+		mutex_unlock(&umac->mutex);
+		return -EINVAL;
+	}
+
+	if (status_code == 0) {
+		wil_umac_node_change_state(node,
+					   WIL_UMAC_NODE_STATE_AUTHENTICATED);
+
+		now = ktime_get();
+		node->stats.tx.last_activity = now;
+	} else {
+		wil_err(umac->wil,
+			"auth resp with status 0x%x. delete %pM node\n",
+			status_code, da);
+		wil_umac_node_dealloc(node);
+	}
+
+	mutex_unlock(&umac->mutex);
+
+	rc = umac->rops.mgmt_tx(vap->driver_vap_ctx, (u8 *)frame, len);
+	if (rc)
+		wil_err(umac->wil, "fail to transmit auth frame, da %pM (rc %d)\n",
+			da, rc);
+	else
+		wil_dbg_umac(umac->wil,
+			     "transmit auth frame, da %pM  status_code %d auth_transaction %d\n",
+			     da, status_code, auth_transaction);
+
+	return rc;
+}
+
+static int wil_umac_mgmt_tx(void *vap_handle, const u8 *buf, size_t len)
+{
+	struct ieee80211_mgmt *frame = (struct ieee80211_mgmt *)buf;
+	struct wil_umac_vap *vap = vap_handle;
+	struct wil_umac *umac = vap->umac;
+	int rc = WIL_UMAC_FRAME_NOT_HANDLED;
+	u16 fc;
+	bool reassoc = false;
+
+	if (len < offsetof(struct ieee80211_mgmt, seq_ctrl)) {
+		wil_dbg_umac(umac->wil, "tx frame too short %zu\n", len);
+		return WIL_UMAC_FRAME_NOT_HANDLED;
+	}
+
+	if (!ieee80211_is_mgmt(frame->frame_control))
+		return WIL_UMAC_FRAME_NOT_HANDLED;
+
+	fc = le16_to_cpu(frame->frame_control);
+	wil_dbg_umac(umac->wil, "handling %s to %pM, len %zu\n",
+		     stype2string(fc & IEEE80211_FCTL_STYPE), frame->da, len);
+
+	wil_hex_dump_umac("umac mgmt tx ", DUMP_PREFIX_OFFSET, 16, 1, buf,
+			  len, true);
+
+	if (!umac->disable_ap_sme) {
+		wil_dbg_umac(umac->wil,
+			     "tx %s frame in disable ap sme\n",
+			     stype2string(fc & IEEE80211_FCTL_STYPE));
+		return WIL_UMAC_FRAME_NOT_HANDLED;
+	}
+
+	switch (fc & IEEE80211_FCTL_STYPE) {
+	case IEEE80211_STYPE_REASSOC_RESP:
+		reassoc = true;
+		/* fallthrough */
+	case IEEE80211_STYPE_ASSOC_RESP:
+		rc = wil_umac_mgmt_tx_assoc_resp(vap, frame, len, reassoc);
+		break;
+	case IEEE80211_STYPE_PROBE_REQ:
+		break;
+	case IEEE80211_STYPE_DISASSOC:
+		rc = wil_umac_mgmt_tx_disassoc(vap, frame, len, false);
+		break;
+	case IEEE80211_STYPE_AUTH:
+		rc = wil_umac_mgmt_tx_auth(vap, frame, len);
+		break;
+	case IEEE80211_STYPE_DEAUTH:
+		rc = wil_umac_mgmt_tx_disassoc(vap, frame, len, true);
+		break;
+	case IEEE80211_STYPE_ACTION:
+		/* note: most action frames (Class 3) allowed only when
+		 * associated
+		 */
+		break;
+	default:
+		break;
+	}
+
+	return rc;
 }
 
 static void wil_umac_disconnect_one_sta(void *vap_handle, const u8 *mac,
@@ -1094,7 +1692,8 @@ static void wil_umac_sta_deleted(void *vap_handle, const u8 *mac)
 	case WIL_UMAC_NODE_STATE_ASSOCIATING:
 		mutex_unlock(&umac->mutex);
 		wil_umac_send_assoc_resp(vap, mac, 0,
-					 WLAN_STATUS_ASSOC_DENIED_UNSPEC);
+					 WLAN_STATUS_ASSOC_DENIED_UNSPEC,
+					 false);
 		if (!wil_umac_relock(umac, node, mac))
 			/* node will be freed elsewhere */
 			goto out;
@@ -1372,7 +1971,8 @@ static struct wil_umac_ops wil_umac_ops = {
 };
 
 void *wil_umac_init(struct wil6210_priv *wil, u8 *permanent_mac,
-		    size_t max_vaps, size_t max_sta, struct wil_umac_ops *ops,
+		    size_t max_vaps, size_t max_sta, bool disable_ap_sme,
+		    struct wil_umac_ops *ops,
 		    const struct wil_umac_rops *rops)
 {
 	struct wil_umac *umac = NULL;
@@ -1389,6 +1989,7 @@ void *wil_umac_init(struct wil6210_priv *wil, u8 *permanent_mac,
 		return NULL;
 
 	umac->wil = wil;
+	umac->disable_ap_sme = disable_ap_sme;
 	ether_addr_copy(umac->permanent_mac, permanent_mac);
 	umac->max_vaps = max_vaps;
 	umac->vaps = kcalloc(max_vaps, sizeof(struct wil_umac_vap),

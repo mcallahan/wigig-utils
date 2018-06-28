@@ -25,6 +25,7 @@
 #include "fw.h"
 
 #define WIL_MAX_ROC_DURATION_MS 5000
+#define CTRY_CHINA "CN"
 
 bool disable_ap_sme;
 module_param(disable_ap_sme, bool, 0444);
@@ -40,9 +41,17 @@ static struct wiphy_wowlan_support wil_wowlan_support = {
 };
 #endif
 
-static unsigned short scan_dwell_time  = WMI_SCAN_DWELL_TIME_MS;
-module_param(scan_dwell_time, ushort, 0644);
-MODULE_PARM_DESC(scan_dwell_time, " Scan dwell time");
+static bool country_specific_board_file;
+module_param(country_specific_board_file, bool, 0444);
+MODULE_PARM_DESC(country_specific_board_file, " switch board file upon regulatory domain change (Default: false)");
+
+static uint scan_dwell_time  = WMI_SCAN_DWELL_TIME_MS;
+module_param(scan_dwell_time, uint, 0644);
+MODULE_PARM_DESC(scan_dwell_time, " Scan dwell time (msec)");
+
+static uint scan_timeout = WIL6210_SCAN_TO_SEC;
+module_param(scan_timeout, uint, 0644);
+MODULE_PARM_DESC(scan_timeout, " Scan timeout (seconds)");
 
 static unsigned short acs_ch_weight[4] = {120, 100, 100, 100};
 module_param_array(acs_ch_weight, ushort, NULL, 0);
@@ -583,6 +592,8 @@ int wil_cid_fill_sinfo(struct wil6210_vif *vif, int cid,
 	struct wil_net_stats *stats = &wil->sta[cid].stats;
 	int rc;
 
+	memset(&reply, 0, sizeof(reply));
+
 	rc = wmi_call(wil, WMI_NOTIFY_REQ_CMDID, vif->mid, &cmd, sizeof(cmd),
 		      WMI_NOTIFY_REQ_DONE_EVENTID, &reply, sizeof(reply), 20);
 	if (rc)
@@ -1050,8 +1061,9 @@ static int wil_cfg80211_scan(struct wiphy *wiphy,
 
 	(void)wil_p2p_stop_discovery(vif);
 
-	wil_dbg_misc(wil, "Start scan_request 0x%p\n", request);
-	wil_dbg_misc(wil, "SSID count: %d", request->n_ssids);
+	wil_dbg_misc(wil,
+		     "Start scan_request 0x%p, dwell_time %dms, timeout %dsec, SSID count %d\n",
+		     request, scan_dwell_time, scan_timeout, request->n_ssids);
 
 	for (i = 0; i < request->n_ssids; i++) {
 		wil_dbg_misc(wil, "SSID[%d]", i);
@@ -1072,10 +1084,12 @@ static int wil_cfg80211_scan(struct wiphy *wiphy,
 	}
 
 	vif->scan_request = request;
-	mod_timer(&vif->scan_timer, jiffies + WIL6210_SCAN_TO);
+	mod_timer(&vif->scan_timer,
+		  jiffies + msecs_to_jiffies(1000U * scan_timeout));
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cmd.scan_type = WMI_ACTIVE_SCAN;
+	cmd.cmd.dwell_time = cpu_to_le32(scan_dwell_time);
 	cmd.cmd.num_channels = 0;
 	n = min(request->n_channels, 4U);
 	for (i = 0; i < n; i++) {
@@ -1535,7 +1549,8 @@ void *wil_umac_register(struct wil6210_priv *wil)
 	wil->umac_rops.add_station = wil_umac_rop_add_station;
 	wil->umac_rops.del_station = wil_umac_rop_del_station;
 	return wil_umac_init(wil, wil->main_ndev->perm_addr, WIL_MAX_VIFS,
-			     max_assoc_sta, &wil->umac_ops, &wil->umac_rops);
+			     max_assoc_sta, disable_ap_sme, &wil->umac_ops,
+			     &wil->umac_rops);
 }
 
 void wil_umac_unregister(struct wil6210_priv *wil)
@@ -1558,18 +1573,57 @@ int wil_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 	int rc;
 	bool tx_status;
 
-	/* Note, currently we do not support the "wait" parameter, user-space
-	 * must call remain_on_channel before mgmt_tx or listen on a channel
-	 * another way (AP/PCP or connected station)
-	 * in addition we need to check if specified "chan" argument is
-	 * different from currently "listened" channel and fail if it is.
+	wil_dbg_misc(wil, "mgmt_tx: channel %d offchan %d, wait %d\n",
+		     params->chan ? params->chan->hw_value : -1,
+		     params->offchan,
+		     params->wait);
+
+	/* Note, currently we support the "wait" parameter only on AP mode.
+	 * In other modes, user-space must call remain_on_channel before
+	 * mgmt_tx or listen on a channel other than active one.
 	 */
 
-	rc = wmi_mgmt_tx(vif, buf, len);
-	tx_status = (rc == 0);
+	if (params->chan && params->chan->hw_value == 0) {
+		wil_err(wil, "invalid channel\n");
+		return -EINVAL;
+	}
 
+	if (vif->umac_vap) {
+		rc = wil->umac_ops.mgmt_tx(vif->umac_vap, buf, len);
+		if (rc != WIL_UMAC_FRAME_NOT_HANDLED)
+			goto out;
+	}
+
+	if (wdev->iftype != NL80211_IFTYPE_AP) {
+		wil_dbg_misc(wil,
+			     "send WMI_SW_TX_REQ_CMDID on non-AP interfaces\n");
+		rc = wmi_mgmt_tx(vif, buf, len);
+		goto out;
+	}
+
+	if (!params->chan || params->chan->hw_value == vif->channel) {
+		wil_dbg_misc(wil,
+			     "send WMI_SW_TX_REQ_CMDID for on-channel\n");
+		rc = wmi_mgmt_tx(vif, buf, len);
+		goto out;
+	}
+
+	if (params->offchan == 0) {
+		wil_err(wil,
+			"invalid channel params: current %d requested %d, off-channel not allowed\n",
+			vif->channel, params->chan->hw_value);
+		return -EBUSY;
+	}
+
+	/* use the wmi_mgmt_tx_ext only on AP mode and off-channel */
+	rc = wmi_mgmt_tx_ext(vif, buf, len, params->chan->hw_value,
+			     params->wait);
+
+out:
+	tx_status = (rc == 0);
 	cfg80211_mgmt_tx_status(wdev, cookie ? *cookie : 0, buf, len,
 				tx_status, GFP_KERNEL);
+
 	return rc;
 }
 
@@ -2681,6 +2735,65 @@ wil_cfg80211_update_ft_ies(struct wiphy *wiphy, struct net_device *dev,
 	return rc;
 }
 
+static int wil_switch_board_file(struct wil6210_priv *wil,
+				 const u8 *new_regdomain)
+{
+	int rc = 0;
+
+	if (!country_specific_board_file)
+		return 0;
+
+	if (memcmp(wil->regdomain, CTRY_CHINA, 2) == 0) {
+		wil_info(wil, "moving out of China reg domain, use default board file\n");
+		wil->board_file_country[0] = '\0';
+	} else if (memcmp(new_regdomain, CTRY_CHINA, 2) == 0) {
+		wil_info(wil, "moving into China reg domain, use country specific board file\n");
+		strlcpy(wil->board_file_country, CTRY_CHINA,
+			sizeof(wil->board_file_country));
+	} else {
+		return 0;
+	}
+
+	/* need to switch board file - reset the device */
+
+	mutex_lock(&wil->mutex);
+
+	if (!wil_has_active_ifaces(wil, true, false) ||
+	    wil_is_recovery_blocked(wil))
+		/* new board file will be used in next FW load */
+		goto out;
+
+	__wil_down(wil);
+	rc = __wil_up(wil);
+
+out:
+	mutex_unlock(&wil->mutex);
+	return rc;
+}
+
+static void wil_cfg80211_reg_notify(struct wiphy *wiphy,
+				    struct regulatory_request *request)
+{
+	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
+	int rc;
+
+	wil_info(wil, "cfg reg_notify %c%c%s%s initiator %d hint_type %d\n",
+		 request->alpha2[0], request->alpha2[1],
+		 request->intersect ? " intersect" : "",
+		 request->processed ? " processed" : "",
+		 request->initiator, request->user_reg_hint_type);
+
+	if (memcmp(wil->regdomain, request->alpha2, 2) == 0)
+		/* reg domain did not change */
+		return;
+
+	rc = wil_switch_board_file(wil, request->alpha2);
+	if (rc)
+		wil_err(wil, "switch board file failed %d\n", rc);
+
+	memcpy(wil->regdomain, request->alpha2, 2);
+}
+
 static const struct cfg80211_ops wil_cfg80211_ops = {
 	.add_virtual_intf = wil_cfg80211_add_iface,
 	.del_virtual_intf = wil_cfg80211_del_iface,
@@ -2752,6 +2865,8 @@ static void wil_wiphy_init(struct wiphy *wiphy)
 	wiphy->n_cipher_suites = ARRAY_SIZE(wil_cipher_suites);
 	wiphy->mgmt_stypes = wil_mgmt_stypes;
 	wiphy->features |= NL80211_FEATURE_SK_TX_STATUS;
+
+	wiphy->reg_notifier = wil_cfg80211_reg_notify;
 
 	wiphy->n_vendor_commands = ARRAY_SIZE(wil_nl80211_vendor_commands);
 	wiphy->vendor_commands = wil_nl80211_vendor_commands;
@@ -3233,7 +3348,9 @@ static int wil_rf_sector_get_cfg(struct wiphy *wiphy,
 	struct {
 		struct wmi_cmd_hdr wmi;
 		struct wmi_get_rf_sector_params_done_event evt;
-	} __packed reply;
+	} __packed reply = {
+		.evt = {.status = WMI_RF_SECTOR_STATUS_NOT_SUPPORTED_ERROR},
+	};
 	struct sk_buff *msg;
 	struct nlattr *nl_cfgs, *nl_cfg;
 	u32 i;
@@ -3279,7 +3396,6 @@ static int wil_rf_sector_get_cfg(struct wiphy *wiphy,
 	cmd.sector_idx = cpu_to_le16(sector_index);
 	cmd.sector_type = sector_type;
 	cmd.rf_modules_vec = rf_modules_vec & 0xFF;
-	memset(&reply, 0, sizeof(reply));
 	rc = wmi_call(wil, WMI_GET_RF_SECTOR_PARAMS_CMDID, vif->mid,
 		      &cmd, sizeof(cmd), WMI_GET_RF_SECTOR_PARAMS_DONE_EVENTID,
 		      &reply, sizeof(reply),
@@ -3354,7 +3470,9 @@ static int wil_rf_sector_set_cfg(struct wiphy *wiphy,
 	struct {
 		struct wmi_cmd_hdr wmi;
 		struct wmi_set_rf_sector_params_done_event evt;
-	} __packed reply;
+	} __packed reply = {
+		.evt = {.status = WMI_RF_SECTOR_STATUS_NOT_SUPPORTED_ERROR},
+	};
 	struct nlattr *nl_cfg;
 	struct wmi_rf_sector_info *si;
 
@@ -3437,7 +3555,6 @@ static int wil_rf_sector_set_cfg(struct wiphy *wiphy,
 	}
 
 	cmd.rf_modules_vec = rf_modules_vec & 0xFF;
-	memset(&reply, 0, sizeof(reply));
 	rc = wmi_call(wil, WMI_SET_RF_SECTOR_PARAMS_CMDID, vif->mid,
 		      &cmd, sizeof(cmd), WMI_SET_RF_SECTOR_PARAMS_DONE_EVENTID,
 		      &reply, sizeof(reply),
@@ -3461,7 +3578,9 @@ static int wil_rf_sector_get_selected(struct wiphy *wiphy,
 	struct {
 		struct wmi_cmd_hdr wmi;
 		struct wmi_get_selected_rf_sector_index_done_event evt;
-	} __packed reply;
+	} __packed reply = {
+		.evt = {.status = WMI_RF_SECTOR_STATUS_NOT_SUPPORTED_ERROR},
+	};
 	struct sk_buff *msg;
 
 	if (!test_bit(WMI_FW_CAPABILITY_RF_SECTORS, wil->fw_capabilities))
@@ -3501,7 +3620,6 @@ static int wil_rf_sector_get_selected(struct wiphy *wiphy,
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.cid = (u8)cid;
 	cmd.sector_type = sector_type;
-	memset(&reply, 0, sizeof(reply));
 	rc = wmi_call(wil, WMI_GET_SELECTED_RF_SECTOR_INDEX_CMDID, vif->mid,
 		      &cmd, sizeof(cmd),
 		      WMI_GET_SELECTED_RF_SECTOR_INDEX_DONE_EVENTID,
@@ -3542,14 +3660,15 @@ static int wil_rf_sector_wmi_set_selected(struct wil6210_priv *wil,
 	struct {
 		struct wmi_cmd_hdr wmi;
 		struct wmi_set_selected_rf_sector_index_done_event evt;
-	} __packed reply;
+	} __packed reply = {
+		.evt = {.status = WMI_RF_SECTOR_STATUS_NOT_SUPPORTED_ERROR},
+	};
 	int rc;
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.sector_idx = cpu_to_le16(sector_index);
 	cmd.sector_type = sector_type;
 	cmd.cid = (u8)cid;
-	memset(&reply, 0, sizeof(reply));
 	rc = wmi_call(wil, WMI_SET_SELECTED_RF_SECTOR_INDEX_CMDID, mid,
 		      &cmd, sizeof(cmd),
 		      WMI_SET_SELECTED_RF_SECTOR_INDEX_DONE_EVENTID,

@@ -22,6 +22,13 @@
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 #include <nss_api_if.h>
 #endif
+bool ac_queues; /* = false; */
+module_param(ac_queues, bool, 0444);
+MODULE_PARM_DESC(ac_queues, " enable access category for transmit packets. default false");
+
+bool q_per_sta; /* = false; */
+module_param(q_per_sta, bool, 0444);
+MODULE_PARM_DESC(q_per_sta, " enable allocating tx queue(s) per station. default false");
 
 bool wil_has_other_active_ifaces(struct wil6210_priv *wil,
 				 struct net_device *ndev, bool up, bool ok)
@@ -131,10 +138,69 @@ static int wil_do_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
 	return wil_ioctl(wil, ifr->ifr_data, cmd);
 }
 
+/**
+ * AC to queue mapping
+ *
+ * AC_VO -> queue 3
+ * AC_VI -> queue 2
+ * AC_BE -> queue 1
+ * AC_BK -> queue 0
+ */
+static u16 wil_select_ac_queue(struct wil6210_priv *wil, struct sk_buff *skb)
+{
+	static const u16 wil_1d_to_queue[8] = {1, 0, 0, 1, 2, 2, 3, 3};
+	u16 ac_qid;
+
+	/* determine the priority */
+	if (skb->priority == 0 || skb->priority > 7)
+		skb->priority = cfg80211_classify8021d(skb, NULL);
+
+	ac_qid = wil_1d_to_queue[skb->priority];
+
+	wil_dbg_txrx(wil, "select queue for priority %d -> queue %d\n",
+		     skb->priority, ac_qid);
+
+	return ac_qid;
+}
+
+static u16 wil_select_queue(struct net_device *ndev,
+			    struct sk_buff *skb,
+			    void *accel_priv,
+			    select_queue_fallback_t fallback)
+{
+	struct wil6210_vif *vif = ndev_to_vif(ndev);
+	struct wil6210_priv *wil = vif_to_wil(vif);
+	struct ethhdr *eth = (void *)skb->data;
+	u16 qid = 0;
+	bool mcast;
+
+	if (!WIL_Q_PER_STA_USED(vif))
+		goto out;
+
+	mcast = is_multicast_ether_addr(eth->h_dest);
+	if (mcast) {
+		qid = max_assoc_sta;
+	} else {
+		qid = wil_find_cid(wil, vif->mid, eth->h_dest);
+
+		/* the MCAST queues also used as default queues */
+		if (qid < 0)
+			qid = max_assoc_sta;
+	}
+
+out:
+	if (ac_queues) {
+		qid *= WIL6210_TX_AC_QUEUES;
+		qid += wil_select_ac_queue(wil, skb);
+	}
+	return qid;
+}
+
 static const struct net_device_ops wil_netdev_ops = {
 	.ndo_open		= wil_open,
 	.ndo_stop		= wil_stop,
 	.ndo_start_xmit		= wil_start_xmit,
+	.ndo_select_queue	= wil_select_queue,
 	.ndo_set_mac_address	= eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_change_mtu		= wil_change_mtu,
@@ -355,6 +421,7 @@ wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 	struct wireless_dev *wdev;
 	struct wil6210_vif *vif;
 	u8 mid;
+	u16 num_of_queues = 1;
 
 	mid = wil_vif_find_free_mid(wil);
 	if (mid == U8_MAX) {
@@ -362,8 +429,18 @@ wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 		return ERR_PTR(-EINVAL);
 	}
 
-	ndev = alloc_netdev(sizeof(*vif), name, name_assign_type,
-			    wil_dev_setup);
+	if (ac_queues)
+		num_of_queues = WIL6210_TX_AC_QUEUES;
+	if (q_per_sta)
+		num_of_queues *= (WIL6210_MAX_CID + 1);
+
+	if (num_of_queues > 1)
+		ndev = alloc_netdev_mqs(sizeof(*vif), name, name_assign_type,
+					wil_dev_setup, num_of_queues, 1);
+	else
+		ndev = alloc_netdev(sizeof(*vif), name, name_assign_type,
+				    wil_dev_setup);
+
 	if (!ndev) {
 		dev_err(wil_to_dev(wil), "alloc_netdev failed\n");
 		return ERR_PTR(-ENOMEM);

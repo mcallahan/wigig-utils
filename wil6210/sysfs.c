@@ -19,6 +19,7 @@
 
 #include "wil6210.h"
 #include "wmi.h"
+#include "txrx.h"
 
 static ssize_t
 wil_ftm_txrx_offset_sysfs_show(struct device *dev,
@@ -206,10 +207,185 @@ static DEVICE_ATTR(fst_link_loss, 0644,
 		   wil_fst_link_loss_sysfs_show,
 		   wil_fst_link_loss_sysfs_store);
 
+static ssize_t
+wil_qos_weights_sysfs_store(struct device *dev,
+			    struct device_attribute *attr,
+			    const char *buf, size_t count)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	int rc = -EINVAL, i;
+	u8 weights[WMI_QOS_NUM_OF_PRIORITY - 1];
+	char *token, *dupbuf, *tmp;
+
+	tmp = kmemdup(buf, count + 1, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	tmp[count] = '\0';
+	dupbuf = tmp;
+
+	for (i = 0; i < ARRAY_SIZE(weights); i++) {
+		token = strsep(&dupbuf, " ");
+		if (!token) {
+			wil_err(wil, "missing prio_weight[%d]\n", i);
+			goto out;
+		}
+		if (kstrtou8(token, 0, &weights[i])) {
+			wil_err(wil, "unrecognized prio_weight[%d]\n", i);
+			goto out;
+		}
+
+		if (weights[i] < WMI_QOS_MIN_DEFAULT_WEIGHT ||
+		    weights[i] > WMI_QOS_MAX_WEIGHT) {
+			wil_err(wil, "invalid prio_weight[%d] %d\n",
+				i, weights[i]);
+			goto out;
+		}
+		if (i > 0 && weights[i] < weights[i - 1]) {
+			wil_err(wil, "invalid (descending) prio_weight[%d] %d\n",
+				i, weights[i]);
+			goto out;
+		}
+	}
+
+	wil_dbg_misc(wil, "set qos weights:\n");
+	for (i = 0; i < ARRAY_SIZE(weights); i++)
+		wil_dbg_misc(wil, "[%d] %d\n", i + 1, weights[i]);
+
+	rc = wil_wmi_ring_priority_weight(vif, ARRAY_SIZE(weights), weights);
+	if (!rc)
+		rc = count;
+
+out:
+	kfree(tmp);
+	return rc;
+}
+
+static DEVICE_ATTR(qos_weights, 0220,
+		   NULL,
+		   wil_qos_weights_sysfs_store);
+
+static ssize_t
+wil_qos_link_prio_sysfs_store(struct device *dev,
+			      struct device_attribute *attr,
+			      const char *buf, size_t count)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	struct wil6210_vif *vif;
+	int rc = -EINVAL;
+	u8 mid, priority;
+	u8 mac[ETH_ALEN];
+	bool mac_found;
+	char *token, *dupbuf, *tmp;
+
+	/* specify either peer MAC or VIF index (MID) followed by
+	 * priority (0-3).
+	 */
+	tmp = kmemdup(buf, count + 1, GFP_KERNEL);
+	if (!tmp)
+		return -ENOMEM;
+
+	tmp[count] = '\0';
+	dupbuf = tmp;
+
+	token = strsep(&dupbuf, " ");
+	if (!token) {
+		wil_err(wil, "invalid qos priority input\n");
+		goto out;
+	}
+
+	mac_found = mac_pton(token, mac);
+	if (!mac_found) {
+		/* look for VIF index */
+		rc = kstrtou8(token, 0, &mid);
+		if (rc) {
+			wil_err(wil, "unrecognized qos priority VIF index\n");
+			goto out;
+		}
+	}
+
+	rc = kstrtou8(dupbuf, 0, &priority);
+	if (rc) {
+		wil_err(wil, "unrecognized qos priority\n");
+		goto out;
+	}
+
+	rc = -EINVAL;
+	if (priority < 0 || priority >= WMI_QOS_NUM_OF_PRIORITY) {
+		wil_err(wil, "invalid qos priority %d\n", priority);
+		goto out;
+	}
+
+	if (mac_found) {
+		/* set priority for peer's tx rings */
+		int ring_idx, cid;
+
+		vif = ndev_to_vif(wil->main_ndev);
+
+		for (cid = 0; cid < ARRAY_SIZE(wil->sta); cid++) {
+			if (wil->sta[cid].status != wil_sta_unused &&
+			    ether_addr_equal(wil->sta[cid].addr, mac))
+				break;
+		}
+
+		if (cid == ARRAY_SIZE(wil->sta)) {
+			wil_err(wil, "invalid qos priority peer %pM\n", mac);
+			goto out;
+		}
+
+		for (ring_idx = wil_get_min_tx_ring_id(wil);
+		     ring_idx < WIL6210_MAX_TX_RINGS; ring_idx++) {
+			if (wil->ring2cid_tid[ring_idx][0] != cid ||
+			    !wil->ring_tx[ring_idx].va)
+				continue;
+
+			wil_dbg_misc(wil, "set ring %d qos priority %d\n",
+				     ring_idx, priority);
+			rc = wil_wmi_ring_priority(vif, ring_idx, priority);
+			if (rc)
+				break;
+		}
+	} else {
+		/* set VIF's default priority */
+		mutex_lock(&wil->vif_mutex);
+		if (mid >= wil->max_vifs) {
+			wil_err(wil, "invalid qos priority VIF %d\n", mid);
+			mutex_unlock(&wil->vif_mutex);
+			goto out;
+		}
+		vif = wil->vifs[mid];
+		if (!vif) {
+			wil_err(wil, "qos priority VIF %d unused\n", mid);
+			mutex_unlock(&wil->vif_mutex);
+			goto out;
+		}
+
+		wil_dbg_misc(wil, "set qos priority %d for mid %d\n",
+			     priority, vif->mid);
+		rc = wil_wmi_ring_priority(vif, WIL6210_MAX_TX_RINGS,
+					   priority);
+		mutex_unlock(&wil->vif_mutex);
+	}
+
+	if (!rc)
+		rc = count;
+
+out:
+	kfree(tmp);
+	return rc;
+}
+
+static DEVICE_ATTR(qos_link_prio, 0220,
+		   NULL,
+		   wil_qos_link_prio_sysfs_store);
+
 static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_ftm_txrx_offset.attr,
 	&dev_attr_board_file.attr,
 	&dev_attr_fst_link_loss.attr,
+	&dev_attr_qos_weights.attr,
+	&dev_attr_qos_link_prio.attr,
 	NULL
 };
 

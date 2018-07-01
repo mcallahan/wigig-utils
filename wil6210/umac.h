@@ -24,6 +24,7 @@
 #include <linux/ktime.h>
 #include <linux/list.h>
 #include <linux/hashtable.h>
+#include <linux/kref.h>
 
 #define WIL_UMAC_MAX_FRAME_SIZE 512
 /* enlarge this (upto 254) to support more nodes per VAP */
@@ -57,7 +58,7 @@ struct wil_umac_vap_stats {
 
 struct wil_umac_vap {
 	struct wil_umac *umac;
-	struct list_head list;
+	bool valid; /* for using as array item */
 	void *driver_vap_ctx;
 	struct net_device *ndev;
 	u8 channel;
@@ -102,7 +103,7 @@ struct wil_umac_node {
 	struct wil_umac *umac;
 	struct wil_umac_vap *vap;
 	struct hlist_node hlist;
-	bool valid; /* for using as array item */
+	struct kref refcount;
 
 	u8 mac[ETH_ALEN];
 	u8 aid;
@@ -197,9 +198,11 @@ struct wil_umac {
 	struct wil6210_priv *wil;
 	u8 permanent_mac[ETH_ALEN];
 	size_t max_sta;
+	size_t max_vaps;
 	struct wil_umac_rops rops;
+	struct platform_device *pdev;
 
-	struct list_head vaps;
+	struct wil_umac_vap *vaps;
 	struct wil_umac_node *node_array;
 	DECLARE_HASHTABLE(node_hash, WIL_UMAC_NODE_HASH_BITS);
 	struct mutex mutex; /* protect umac/vap/node operations */
@@ -211,11 +214,23 @@ struct wil_umac {
 	struct timer_list inact_timer;
 };
 
+/* callbacks from external drivers into UMAC */
+struct wil_umac_external_ops {
+	struct wil_umac_node *(*node_get)(void *umac_handle, const u8 *mac);
+	void (*node_put)(void *umac_handle, struct wil_umac_node *node);
+};
+
+/* platform device data for interaction with external drivers */
+struct wil_umac_platdata {
+	struct wil_umac_external_ops ops;
+	void *umac_handle;
+};
+
 /* init UMAC module.
  * returns opaque umac handle.
  */
 void *wil_umac_init(struct wil6210_priv *wil, u8 *permanent_mac,
-		    size_t max_sta, struct wil_umac_ops *ops,
+		    size_t max_vaps, size_t max_sta, struct wil_umac_ops *ops,
 		    const struct wil_umac_rops *rops);
 
 #endif /* WIL6210_UMAC_H */

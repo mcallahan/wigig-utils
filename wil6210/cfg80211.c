@@ -431,7 +431,9 @@ wil_mgmt_stypes[NUM_NL80211_IFTYPES] = {
 		.tx = BIT(IEEE80211_STYPE_ACTION >> 4) |
 		BIT(IEEE80211_STYPE_PROBE_RESP >> 4) |
 		BIT(IEEE80211_STYPE_ASSOC_RESP >> 4) |
-		BIT(IEEE80211_STYPE_DISASSOC >> 4),
+		BIT(IEEE80211_STYPE_DISASSOC >> 4) |
+		BIT(IEEE80211_STYPE_AUTH >> 4) |
+		BIT(IEEE80211_STYPE_REASSOC_RESP >> 4),
 		.rx = BIT(IEEE80211_STYPE_ACTION >> 4) |
 		BIT(IEEE80211_STYPE_PROBE_REQ >> 4) |
 		BIT(IEEE80211_STYPE_ASSOC_REQ >> 4) |
@@ -491,6 +493,86 @@ int wil_iftype_nl2wmi(enum nl80211_iftype type)
 	}
 
 	return -EOPNOTSUPP;
+}
+
+int wil_spec2wmi_ch(u8 spec_ch, u8 *wmi_ch)
+{
+	switch (spec_ch) {
+	case 1:
+		*wmi_ch = WMI_CHANNEL_1;
+		break;
+	case 2:
+		*wmi_ch = WMI_CHANNEL_2;
+		break;
+	case 3:
+		*wmi_ch = WMI_CHANNEL_3;
+		break;
+	case 4:
+		*wmi_ch = WMI_CHANNEL_4;
+		break;
+	case 5:
+		*wmi_ch = WMI_CHANNEL_5;
+		break;
+	case 6:
+		*wmi_ch = WMI_CHANNEL_6;
+		break;
+	case 9:
+		*wmi_ch = WMI_CHANNEL_9;
+		break;
+	case 10:
+		*wmi_ch = WMI_CHANNEL_10;
+		break;
+	case 11:
+		*wmi_ch = WMI_CHANNEL_11;
+		break;
+	case 12:
+		*wmi_ch = WMI_CHANNEL_12;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int wil_wmi2spec_ch(u8 wmi_ch, u8 *spec_ch)
+{
+	switch (wmi_ch) {
+	case WMI_CHANNEL_1:
+		*spec_ch = 1;
+		break;
+	case WMI_CHANNEL_2:
+		*spec_ch = 2;
+		break;
+	case WMI_CHANNEL_3:
+		*spec_ch = 3;
+		break;
+	case WMI_CHANNEL_4:
+		*spec_ch = 4;
+		break;
+	case WMI_CHANNEL_5:
+		*spec_ch = 5;
+		break;
+	case WMI_CHANNEL_6:
+		*spec_ch = 6;
+		break;
+	case WMI_CHANNEL_9:
+		*spec_ch = 9;
+		break;
+	case WMI_CHANNEL_10:
+		*spec_ch = 10;
+		break;
+	case WMI_CHANNEL_11:
+		*spec_ch = 11;
+		break;
+	case WMI_CHANNEL_12:
+		*spec_ch = 12;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 int wil_cid_fill_sinfo(struct wil6210_vif *vif, int cid,
@@ -929,11 +1011,12 @@ static int wil_cfg80211_scan(struct wiphy *wiphy,
 
 	wil_dbg_misc(wil, "scan: wdev=0x%p iftype=%d\n", wdev, wdev->iftype);
 
-	/* check we are client side */
+	/* scan is supported on client interfaces and on AP interface */
 	switch (wdev->iftype) {
 	case NL80211_IFTYPE_STATION:
 	case NL80211_IFTYPE_P2P_CLIENT:
 	case NL80211_IFTYPE_P2P_DEVICE:
+	case NL80211_IFTYPE_AP:
 		break;
 	default:
 		return -EOPNOTSUPP;
@@ -1110,6 +1193,26 @@ static void wil_print_crypto(struct wil6210_priv *wil,
 		     c->control_port_no_encrypt);
 }
 
+static const char *
+wil_get_auth_type_name(enum nl80211_auth_type auth_type)
+{
+	switch (auth_type) {
+	case NL80211_AUTHTYPE_OPEN_SYSTEM:
+		return "OPEN_SYSTEM";
+	case NL80211_AUTHTYPE_SHARED_KEY:
+		return "SHARED_KEY";
+	case NL80211_AUTHTYPE_FT:
+		return "FT";
+	case NL80211_AUTHTYPE_NETWORK_EAP:
+		return "NETWORK_EAP";
+	case NL80211_AUTHTYPE_SAE:
+		return "SAE";
+	case NL80211_AUTHTYPE_AUTOMATIC:
+		return "AUTOMATIC";
+	default:
+		return "unknown";
+	}
+}
 static void wil_print_connect_params(struct wil6210_priv *wil,
 				     struct cfg80211_connect_params *sme)
 {
@@ -1123,9 +1226,68 @@ static void wil_print_connect_params(struct wil6210_priv *wil,
 	if (sme->ssid)
 		print_hex_dump(KERN_INFO, "  SSID: ", DUMP_PREFIX_OFFSET,
 			       16, 1, sme->ssid, sme->ssid_len, true);
+	wil_info(wil, "  Auth Type: %s\n",
+		 wil_get_auth_type_name(sme->auth_type));
 	wil_info(wil, "  Privacy: %s\n", sme->privacy ? "secure" : "open");
 	wil_info(wil, "  PBSS: %d\n", sme->pbss);
 	wil_print_crypto(wil, &sme->crypto);
+}
+
+static int wil_ft_connect(struct wiphy *wiphy,
+			  struct net_device *ndev,
+			  struct cfg80211_connect_params *sme)
+{
+	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
+	struct wil6210_vif *vif = ndev_to_vif(ndev);
+	struct wmi_ft_auth_cmd auth_cmd;
+	int rc;
+
+	if (!test_bit(WMI_FW_CAPABILITY_FT_ROAMING, wil->fw_capabilities)) {
+		wil_err(wil, "FT: FW does not support FT roaming\n");
+		return -EOPNOTSUPP;
+	}
+
+	if (!test_bit(wil_vif_fwconnected, vif->status)) {
+		wil_err(wil, "FT: roam while not connected\n");
+		return -EINVAL;
+	}
+
+	if (vif->privacy != sme->privacy) {
+		wil_err(wil, "FT: privacy mismatch, current (%d) roam (%d)\n",
+			vif->privacy, sme->privacy);
+		return -EINVAL;
+	}
+
+	if (sme->pbss) {
+		wil_err(wil, "FT: roam is not valid for PBSS\n");
+		return -EINVAL;
+	}
+
+	memset(&auth_cmd, 0, sizeof(auth_cmd));
+	auth_cmd.channel = sme->channel->hw_value - 1;
+	ether_addr_copy(auth_cmd.bssid, sme->bssid);
+
+	if (test_bit(WMI_FW_CAPABILITY_CHANNEL_BONDING, wil->fw_capabilities))
+		if (wil->force_edmg_channel) {
+			rc = wil_spec2wmi_ch(wil->force_edmg_channel,
+					     &auth_cmd.channel);
+			if (rc)
+				wil_err(wil, "FT: wmi channel for channel %d not found",
+					wil->force_edmg_channel);
+		}
+
+	wil_info(wil, "FT: roaming\n");
+
+	set_bit(wil_vif_ft_roam, vif->status);
+	rc = wmi_send(wil, WMI_FT_AUTH_CMDID, vif->mid,
+		      &auth_cmd, sizeof(auth_cmd));
+	if (rc == 0)
+		mod_timer(&vif->connect_timer,
+			  jiffies + msecs_to_jiffies(5000));
+	else
+		clear_bit(wil_vif_ft_roam, vif->status);
+
+	return rc;
 }
 
 static int wil_cfg80211_connect(struct wiphy *wiphy,
@@ -1140,14 +1302,23 @@ static int wil_cfg80211_connect(struct wiphy *wiphy,
 	const u8 *rsn_eid;
 	int ch;
 	int rc = 0;
+	bool is_ft_roam = false;
+	u8 network_type;
 	enum ieee80211_bss_type bss_type = IEEE80211_BSS_TYPE_ESS;
 
 	wil_dbg_misc(wil, "connect, mid=%d\n", vif->mid);
 	wil_print_connect_params(wil, sme);
 
-	if (test_bit(wil_vif_fwconnecting, vif->status) ||
+	if (sme->auth_type == NL80211_AUTHTYPE_FT)
+		is_ft_roam = true;
+	if (sme->auth_type == NL80211_AUTHTYPE_AUTOMATIC &&
 	    test_bit(wil_vif_fwconnected, vif->status))
-		return -EALREADY;
+		is_ft_roam = true;
+
+	if (!is_ft_roam)
+		if (test_bit(wil_vif_fwconnecting, vif->status) ||
+		    test_bit(wil_vif_fwconnected, vif->status))
+			return -EALREADY;
 
 	if (sme->ie_len > WMI_MAX_IE_LEN) {
 		wil_err(wil, "IE too large (%td bytes)\n", sme->ie_len);
@@ -1157,8 +1328,13 @@ static int wil_cfg80211_connect(struct wiphy *wiphy,
 	rsn_eid = sme->ie ?
 			cfg80211_find_ie(WLAN_EID_RSN, sme->ie, sme->ie_len) :
 			NULL;
-	if (sme->privacy && !rsn_eid)
+	if (sme->privacy && !rsn_eid) {
 		wil_info(wil, "WSC connection\n");
+		if (is_ft_roam) {
+			wil_err(wil, "No WSC with FT roam\n");
+			return -EINVAL;
+		}
+	}
 
 	if (sme->pbss)
 		bss_type = IEEE80211_BSS_TYPE_PBSS;
@@ -1180,6 +1356,45 @@ static int wil_cfg80211_connect(struct wiphy *wiphy,
 	vif->privacy = sme->privacy;
 	vif->pbss = sme->pbss;
 
+	rc = wmi_set_ie(vif, WMI_FRAME_ASSOC_REQ, sme->ie_len, sme->ie);
+	if (rc)
+		goto out;
+
+	switch (bss->capability & WLAN_CAPABILITY_DMG_TYPE_MASK) {
+	case WLAN_CAPABILITY_DMG_TYPE_AP:
+		network_type = WMI_NETTYPE_INFRA;
+		break;
+	case WLAN_CAPABILITY_DMG_TYPE_PBSS:
+		network_type = WMI_NETTYPE_P2P;
+		break;
+	default:
+		wil_err(wil, "Unsupported BSS type, capability= 0x%04x\n",
+			bss->capability);
+		rc = -EINVAL;
+		goto out;
+	}
+
+	ch = bss->channel->hw_value;
+	if (ch == 0) {
+		wil_err(wil, "BSS at unknown frequency %dMhz\n",
+			bss->channel->center_freq);
+		rc = -EOPNOTSUPP;
+		goto out;
+	}
+
+	if (is_ft_roam) {
+		if (network_type != WMI_NETTYPE_INFRA) {
+			wil_err(wil, "FT: Unsupported BSS type, capability= 0x%04x\n",
+				bss->capability);
+			rc = -EINVAL;
+			goto out;
+		}
+		rc = wil_ft_connect(wiphy, ndev, sme);
+		if (rc == 0)
+			vif->bss = bss;
+		goto out;
+	}
+
 	if (vif->privacy) {
 		/* For secure assoc, remove old keys */
 		rc = wmi_del_cipher_key(vif, 0, bss->bssid,
@@ -1196,28 +1411,9 @@ static int wil_cfg80211_connect(struct wiphy *wiphy,
 		}
 	}
 
-	/* WMI_SET_APPIE_CMD. ie may contain rsn info as well as other info
-	 * elements. Send it also in case it's empty, to erase previously set
-	 * ies in FW.
-	 */
-	rc = wmi_set_ie(vif, WMI_FRAME_ASSOC_REQ, sme->ie_len, sme->ie);
-	if (rc)
-		goto out;
-
 	/* WMI_CONNECT_CMD */
 	memset(&conn, 0, sizeof(conn));
-	switch (bss->capability & WLAN_CAPABILITY_DMG_TYPE_MASK) {
-	case WLAN_CAPABILITY_DMG_TYPE_AP:
-		conn.network_type = WMI_NETTYPE_INFRA;
-		break;
-	case WLAN_CAPABILITY_DMG_TYPE_PBSS:
-		conn.network_type = WMI_NETTYPE_P2P;
-		break;
-	default:
-		wil_err(wil, "Unsupported BSS type, capability= 0x%04x\n",
-			bss->capability);
-		goto out;
-	}
+	conn.network_type = network_type;
 	if (vif->privacy) {
 		if (rsn_eid) { /* regular secure connection */
 			conn.dot11_auth_mode = WMI_AUTH11_SHARED;
@@ -1237,15 +1433,16 @@ static int wil_cfg80211_connect(struct wiphy *wiphy,
 
 	conn.ssid_len = min_t(u8, ssid_eid[1], 32);
 	memcpy(conn.ssid, ssid_eid+2, conn.ssid_len);
-
-	ch = bss->channel->hw_value;
-	if (ch == 0) {
-		wil_err(wil, "BSS at unknown frequency %dMhz\n",
-			bss->channel->center_freq);
-		rc = -EOPNOTSUPP;
-		goto out;
-	}
 	conn.channel = ch - 1;
+
+	if (test_bit(WMI_FW_CAPABILITY_CHANNEL_BONDING, wil->fw_capabilities))
+		if (wil->force_edmg_channel) {
+			rc = wil_spec2wmi_ch(wil->force_edmg_channel,
+					     &conn.edmg_channel);
+			if (rc)
+				wil_err(wil, "wmi channel for channel %d not found",
+					wil->force_edmg_channel);
+		}
 
 	ether_addr_copy(conn.bssid, bss->bssid);
 	ether_addr_copy(conn.dst_mac, bss->bssid);
@@ -1350,8 +1547,8 @@ void *wil_umac_register(struct wil6210_priv *wil)
 	wil->umac_rops.mgmt_tx = wil_umac_rop_mgmt_tx;
 	wil->umac_rops.add_station = wil_umac_rop_add_station;
 	wil->umac_rops.del_station = wil_umac_rop_del_station;
-	return wil_umac_init(wil, wil->main_ndev->perm_addr, max_assoc_sta,
-			     &wil->umac_ops, &wil->umac_rops);
+	return wil_umac_init(wil, wil->main_ndev->perm_addr, WIL_MAX_VIFS,
+			     max_assoc_sta, &wil->umac_ops, &wil->umac_rops);
 }
 
 void wil_umac_unregister(struct wil6210_priv *wil)
@@ -1452,9 +1649,9 @@ wil_find_sta_by_key_usage(struct wil6210_priv *wil, u8 mid,
 	return &wil->sta[cid];
 }
 
-static void wil_set_crypto_rx(u8 key_index, enum wmi_key_usage key_usage,
-			      struct wil_sta_info *cs,
-			      struct key_params *params)
+void wil_set_crypto_rx(u8 key_index, enum wmi_key_usage key_usage,
+		       struct wil_sta_info *cs,
+		       struct key_params *params)
 {
 	struct wil_tid_crypto_rx_single *cc;
 	int tid;
@@ -1537,13 +1734,19 @@ static int wil_cfg80211_add_key(struct wiphy *wiphy,
 		     params->seq_len, params->seq);
 
 	if (IS_ERR(cs)) {
-		wil_err(wil, "Not connected, %pM %s[%d] PN %*phN\n",
-			mac_addr, key_usage_str[key_usage], key_index,
-			params->seq_len, params->seq);
-		return -EINVAL;
+		/* in FT, sta info may not be available as add_key may be
+		 * sent by host before FW sends WMI_CONNECT_EVENT
+		 */
+		if (!test_bit(wil_vif_ft_roam, vif->status)) {
+			wil_err(wil, "Not connected, %pM %s[%d] PN %*phN\n",
+				mac_addr, key_usage_str[key_usage], key_index,
+				params->seq_len, params->seq);
+			return -EINVAL;
+		}
 	}
 
-	wil_del_rx_key(key_index, key_usage, cs);
+	if (!IS_ERR(cs))
+		wil_del_rx_key(key_index, key_usage, cs);
 
 	if (params->seq && params->seq_len != IEEE80211_GCMP_PN_LEN) {
 		wil_err(wil,
@@ -1567,7 +1770,10 @@ static int wil_cfg80211_add_key(struct wiphy *wiphy,
 		if (vif->umac_vap)
 			wil->umac_ops.del_key(vif->umac_vap, key_index,
 					      pairwise, mac_addr);
-	} else {
+	} else if (!IS_ERR(cs)) {
+		/* in FT set crypto will take place upon receiving
+		 * WMI_RING_EN_EVENTID event
+		 */
 		wil_set_crypto_rx(key_index, key_usage, cs, params);
 	}
 
@@ -1735,22 +1941,37 @@ static void wil_print_bcon_data(struct cfg80211_beacon_data *b)
 }
 
 /* internal functions for device reset and starting AP */
+static u8 *
+_wil_cfg80211_get_proberesp_ies(const u8 *proberesp, u16 proberesp_len,
+				u16 *ies_len)
+{
+	u8 *ies = NULL;
+
+	if (proberesp) {
+		struct ieee80211_mgmt *f =
+			(struct ieee80211_mgmt *)proberesp;
+		size_t hlen = offsetof(struct ieee80211_mgmt,
+				       u.probe_resp.variable);
+
+		ies = f->u.probe_resp.variable;
+		if (ies_len)
+			*ies_len = proberesp_len - hlen;
+	}
+
+	return ies;
+}
+
 static int _wil_cfg80211_set_ies(struct wil6210_vif *vif,
 				 struct cfg80211_beacon_data *bcon)
 {
 	int rc;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	u16 len = 0, proberesp_len = 0;
-	u8 *ies = NULL, *proberesp = NULL;
+	u8 *ies = NULL, *proberesp;
 
-	if (bcon->probe_resp) {
-		struct ieee80211_mgmt *f =
-			(struct ieee80211_mgmt *)bcon->probe_resp;
-		size_t hlen = offsetof(struct ieee80211_mgmt,
-				       u.probe_resp.variable);
-		proberesp = f->u.probe_resp.variable;
-		proberesp_len = bcon->probe_resp_len - hlen;
-	}
+	proberesp = _wil_cfg80211_get_proberesp_ies(
+		bcon->probe_resp, bcon->probe_resp_len,
+		&proberesp_len);
 	rc = _wil_cfg80211_merge_extra_ies(proberesp,
 					   proberesp_len,
 					   bcon->proberesp_ies,
@@ -1816,6 +2037,9 @@ static int _wil_cfg80211_start_ap(struct wiphy *wiphy,
 	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 	u8 wmi_nettype = wil_iftype_nl2wmi(wdev->iftype);
 	u8 is_go = (wdev->iftype == NL80211_IFTYPE_P2P_GO);
+	u16 proberesp_len = 0;
+	u8 *proberesp;
+	bool ft = false;
 
 	if (pbss)
 		wmi_nettype = WMI_NETTYPE_P2P;
@@ -1827,6 +2051,25 @@ static int _wil_cfg80211_start_ap(struct wiphy *wiphy,
 	}
 
 	wil_set_recovery_state(wil, fw_recovery_idle);
+
+	proberesp = _wil_cfg80211_get_proberesp_ies(
+		bcon->probe_resp, bcon->probe_resp_len,
+		&proberesp_len);
+	/* check that the probe response IEs has a MDE */
+	if ((proberesp && proberesp_len > 0 &&
+	     cfg80211_find_ie(WLAN_EID_MOBILITY_DOMAIN,
+			      proberesp,
+			      proberesp_len)))
+		ft = true;
+
+	if (ft) {
+		if (!test_bit(WMI_FW_CAPABILITY_FT_ROAMING,
+			      wil->fw_capabilities)) {
+			wil_err(wil, "FW does not support FT roaming\n");
+			return -ENOTSUPP;
+		}
+		set_bit(wil_vif_ft_roam, vif->status);
+	}
 
 	mutex_lock(&wil->mutex);
 
@@ -1861,7 +2104,7 @@ static int _wil_cfg80211_start_ap(struct wiphy *wiphy,
 		vap_params.bi = bi;
 		vap_params.hidden_ssid = hidden_ssid;
 		vap_params.privacy = privacy;
-		vap_params.max_aid = WIL6210_MAX_CID;
+		vap_params.max_aid = max_assoc_sta;
 		rc = wil->umac_ops.start_ap(vif->umac_vap, &vap_params);
 		if (rc)
 			goto out;
@@ -1878,6 +2121,9 @@ static int _wil_cfg80211_start_ap(struct wiphy *wiphy,
 	rc = wil_bcast_init(vif);
 	if (rc)
 		goto err_bcast;
+
+	if (q_per_sta) /* wake default net queue - used mainly for multicast */
+		wil_update_cid_net_queues_bh(wil, vif, max_assoc_sta, false);
 
 	goto out; /* success */
 
@@ -1899,9 +2145,15 @@ static int wil_cfg80211_change_beacon(struct wiphy *wiphy,
 				      struct cfg80211_beacon_data *bcon)
 {
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
+	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
 	int rc;
 	u32 privacy = 0;
+	u16 len = 0, proberesp_len = 0, ssid_len;
+	u8 *ies = NULL, *proberesp;
+	bool ssid_changed = false;
+	const u8 *ie;
+	u8 ssid[IEEE80211_MAX_SSID_LEN];
 
 	wil_dbg_misc(wil, "change_beacon, mid=%d\n", vif->mid);
 	wil_print_bcon_data(bcon);
@@ -1911,6 +2163,31 @@ static int wil_cfg80211_change_beacon(struct wiphy *wiphy,
 			     bcon->tail_len))
 		privacy = 1;
 
+	memcpy(ssid, wdev->ssid, wdev->ssid_len);
+	ssid_len = wdev->ssid_len;
+
+	/* extract updated SSID from the probe response IE */
+	proberesp = _wil_cfg80211_get_proberesp_ies(
+		bcon->probe_resp, bcon->probe_resp_len,
+		&proberesp_len);
+	rc = _wil_cfg80211_merge_extra_ies(proberesp,
+					   proberesp_len,
+					   bcon->proberesp_ies,
+					   bcon->proberesp_ies_len,
+					   &ies, &len);
+
+	if (!rc) {
+		ie = cfg80211_find_ie(WLAN_EID_SSID, ies, len);
+		if (ie && (ie[1] <= IEEE80211_MAX_SSID_LEN)) {
+			if ((ie[1] != ssid_len) ||
+			    memcmp(&ie[2], ssid, ie[1])) {
+				memcpy(ssid, &ie[2], ie[1]);
+				ssid_len = ie[1];
+				ssid_changed = true;
+			}
+		}
+	}
+
 	/* in case privacy has changed, need to restart the AP */
 	if (vif->privacy != privacy) {
 		struct wireless_dev *wdev = ndev->ieee80211_ptr;
@@ -1918,16 +2195,27 @@ static int wil_cfg80211_change_beacon(struct wiphy *wiphy,
 		wil_dbg_misc(wil, "privacy changed %d=>%d. Restarting AP\n",
 			     vif->privacy, privacy);
 
-		rc = _wil_cfg80211_start_ap(wiphy, ndev, wdev->ssid,
-					    wdev->ssid_len, privacy,
+		rc = _wil_cfg80211_start_ap(wiphy, ndev, ssid,
+					    ssid_len, privacy,
 					    wdev->beacon_interval,
 					    vif->channel, bcon,
 					    vif->hidden_ssid,
 					    vif->pbss);
 	} else {
+		if (ssid_changed) {
+			rc = wmi_set_ssid(vif, ssid_len, ssid);
+			if (rc)
+				goto out;
+		}
 		rc = _wil_cfg80211_set_ies(vif, bcon);
 	}
 
+	if (ssid_changed) {
+		wdev->ssid_len = ssid_len;
+		memcpy(wdev->ssid, ssid, ssid_len);
+	}
+
+out:
 	return rc;
 }
 
@@ -2012,6 +2300,10 @@ static int wil_cfg80211_stop_ap(struct wiphy *wiphy,
 	mutex_lock(&wil->mutex);
 
 	wmi_pcp_stop(vif);
+	clear_bit(wil_vif_ft_roam, vif->status);
+
+	if (q_per_sta) /* stop default net queue - used mainly for multicast */
+		wil_update_cid_net_queues_bh(wil, vif, max_assoc_sta, true);
 
 	if (last)
 		__wil_down(wil);
@@ -2031,8 +2323,9 @@ static int wil_cfg80211_add_station(struct wiphy *wiphy,
 	struct wil6210_vif *vif = ndev_to_vif(dev);
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
 
-	wil_dbg_misc(wil, "add station %pM aid %d mid %d\n",
-		     mac, params->aid, vif->mid);
+	wil_dbg_misc(wil, "add station %pM aid %d mid %d mask 0x%x set 0x%x\n",
+		     mac, params->aid, vif->mid,
+		     params->sta_flags_mask, params->sta_flags_set);
 
 	if (!disable_ap_sme) {
 		wil_err(wil, "not supported with AP SME enabled\n");
@@ -2352,6 +2645,54 @@ wil_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 	return 0;
 }
 
+static int
+wil_cfg80211_update_ft_ies(struct wiphy *wiphy, struct net_device *dev,
+			   struct cfg80211_update_ft_ies_params *ftie)
+{
+	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
+	struct wil6210_vif *vif = ndev_to_vif(dev);
+	struct cfg80211_bss *bss;
+	struct wmi_ft_reassoc_cmd reassoc;
+	int rc = 0;
+
+	wil_dbg_misc(wil, "update ft ies, mid=%d\n", vif->mid);
+	wil_hex_dump_misc("FT IE ", DUMP_PREFIX_OFFSET, 16, 1,
+			  ftie->ie, ftie->ie_len, true);
+
+	if (!test_bit(WMI_FW_CAPABILITY_FT_ROAMING, wil->fw_capabilities)) {
+		wil_err(wil, "FW does not support FT roaming\n");
+		return -EOPNOTSUPP;
+	}
+
+	rc = wmi_update_ft_ies(vif, ftie->ie_len, ftie->ie);
+	if (rc)
+		return rc;
+
+	if (!test_bit(wil_vif_ft_roam, vif->status))
+		/* vif is not roaming */
+		return 0;
+
+	/* wil_vif_ft_roam is set. wil_cfg80211_update_ft_ies is used as
+	 * a trigger for reassoc
+	 */
+
+	bss = vif->bss;
+	if (!bss) {
+		wil_err(wil, "FT: bss is NULL\n");
+		return -EINVAL;
+	}
+
+	memset(&reassoc, 0, sizeof(reassoc));
+	ether_addr_copy(reassoc.bssid, bss->bssid);
+
+	rc = wmi_send(wil, WMI_FT_REASSOC_CMDID, vif->mid,
+		      &reassoc, sizeof(reassoc));
+	if (rc)
+		wil_err(wil, "FT: reassoc failed (%d)\n", rc);
+
+	return rc;
+}
+
 static const struct cfg80211_ops wil_cfg80211_ops = {
 	.add_virtual_intf = wil_cfg80211_add_iface,
 	.del_virtual_intf = wil_cfg80211_del_iface,
@@ -2387,6 +2728,7 @@ static const struct cfg80211_ops wil_cfg80211_ops = {
 	.resume = wil_cfg80211_resume,
 	.sched_scan_start = wil_cfg80211_sched_scan_start,
 	.sched_scan_stop = wil_cfg80211_sched_scan_stop,
+	.update_ft_ies = wil_cfg80211_update_ft_ies,
 };
 
 static void wil_wiphy_init(struct wiphy *wiphy)
@@ -3304,7 +3646,7 @@ static int wil_rf_sector_set_selected(struct wiphy *wiphy,
 			wil, vif->mid, WMI_INVALID_RF_SECTOR_INDEX,
 			sector_type, WIL_CID_ALL);
 		if (rc == -EINVAL) {
-			for (i = 0; i < WIL6210_MAX_CID; i++) {
+			for (i = 0; i < max_assoc_sta; i++) {
 				if (wil->sta[i].mid != vif->mid)
 					continue;
 				rc = wil_rf_sector_wmi_set_selected(

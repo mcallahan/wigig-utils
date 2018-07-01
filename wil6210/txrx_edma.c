@@ -756,11 +756,21 @@ static int wil_ring_init_tx_edma(struct wil6210_vif *vif, int ring_id,
 	txdata->enabled = 0;
 	spin_unlock_bh(&txdata->lock);
 	wil_ring_free_edma(wil, ring);
-	wil->ring2cid_tid[ring_id][0] = WIL6210_MAX_CID;
+	wil->ring2cid_tid[ring_id][0] = max_assoc_sta;
 	wil->ring2cid_tid[ring_id][1] = 0;
 
  out:
 	return rc;
+}
+
+static int wil_tx_ring_modify_edma(struct wil6210_vif *vif, int ring_id,
+				   int cid, int tid)
+{
+	struct wil6210_priv *wil = vif_to_wil(vif);
+
+	wil_err(wil, "ring modify is not supported for EDMA\n");
+
+	return -EOPNOTSUPP;
 }
 
 /* This function is used only for RX SW reorder */
@@ -942,7 +952,7 @@ again:
 	eop = wil_rx_status_get_eop(msg);
 
 	cid = wil_rx_status_get_cid(msg);
-	if (unlikely(!wil_val_in_range(cid, 0, WIL6210_MAX_CID))) {
+	if (unlikely(!wil_val_in_range(cid, 0, max_assoc_sta))) {
 		wil_err(wil, "Corrupt cid=%d, sring->swhead=%d\n",
 			cid, sring->swhead);
 		rxdata->skipping = true;
@@ -1200,7 +1210,7 @@ int wil_tx_sring_handler(struct wil6210_priv *wil,
 		ndev = vif_to_ndev(vif);
 
 		cid = wil->ring2cid_tid[ring_id][0];
-		if (cid < WIL6210_MAX_CID)
+		if (cid < max_assoc_sta)
 			stats = &wil->sta[cid].stats;
 
 		wil_dbg_txrx(wil,
@@ -1279,7 +1289,7 @@ again:
 
 	/* shall we wake net queues? */
 	if (desc_cnt)
-		wil_update_net_queues(wil, vif, NULL, false);
+		wil_update_net_queues(wil, vif, ring, false);
 
 	/* Update the HW tail ptr (RD ptr) */
 	wil_w(wil, sring->hwtail, (sring->swhead - 1) % sring->size);
@@ -1603,6 +1613,7 @@ void wil_init_txrx_ops_edma(struct wil6210_priv *wil)
 	wil->txrx_ops.tx_desc_map = wil_tx_desc_map_edma;
 	wil->txrx_ops.tx_desc_unmap = wil_tx_desc_unmap_edma;
 	wil->txrx_ops.tx_ring_tso = __wil_tx_ring_tso_edma;
+	wil->txrx_ops.tx_ring_modify = wil_tx_ring_modify_edma;
 	/* RX ops */
 	wil->txrx_ops.rx_init = wil_rx_init_edma;
 	wil->txrx_ops.wmi_addba_rx_resp = wmi_addba_rx_resp_edma;

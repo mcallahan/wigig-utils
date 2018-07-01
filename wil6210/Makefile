@@ -38,3 +38,7 @@ endif
 ifeq (y, $(CONFIG_WIL6210_NSS_SUPPORT))
 subdir-ccflags-y += -DCONFIG_WIL6210_NSS_SUPPORT
 endif
+
+# some kernels don't set it for out-of-tree modules
+# as result, <> style #include for uapi/ don't work
+subdir-ccflags-y += -I$(src)

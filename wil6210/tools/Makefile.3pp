@@ -1,0 +1,18 @@
+CC=$(TARGET_CROSS)gcc
+
+all: wil_fw_trace wil_mem wil_memdump install
+
+wil_fw_trace : wil_fw_trace.c
+	$(CC) --sysroot=$(SYSROOT_CPP) $< -o $@
+
+wil_mem : wil_mem.c
+	$(CC) --sysroot=$(SYSROOT_CPP) $< -o $@
+
+wil_memdump : wil_memdump.c
+	$(CC) --sysroot=$(SYSROOT_CPP) $< -o $@
+
+install:
+	$(INSTALL_DIR) $(INSTALL_ROOT)/usr/bin
+	$(INSTALL_BIN) ./wil_fw_trace $(INSTALL_ROOT)/usr/bin
+	$(INSTALL_BIN) ./wil_mem $(INSTALL_ROOT)/usr/bin
+	$(INSTALL_BIN) ./wil_memdump $(INSTALL_ROOT)/usr/bin

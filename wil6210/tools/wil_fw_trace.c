@@ -15,6 +15,8 @@
 #include <getopt.h>
 #include <errno.h>
 #include <err.h>
+#include <time.h>
+#include <stdarg.h>
 
 /*
  * Dumps firmware trace.
@@ -137,17 +139,18 @@ static const char *CORRUPTED_PARAM_MARK = "ZZZZ";
 /* log parameters */
 static size_t log_offset; /* =0; offset of log buf in the file */
 static size_t log_buf_entries; /* =0 entries in the log buf */
-static int once; /* = 0; */
 
 static void *log_buf; /* memory allocated for the log buf */
 static union log_event evt;
-static char module_string[32] = { '\0' };
+static char timestamp[25] = { '\0' };
+static char module_string[128] = { '\0' };
 static uint prev_module;
 static char trailing_newline = 1;
 static char *str_buf;
 static size_t str_sz;
 static u32 rptr; /* = 0; */
 static u32 rptr_param_last; /* = 0; */
+static u32 wptr; /* = 0; */
 static const char *const levels[] = {
 	"E",
 	"W",
@@ -164,15 +167,34 @@ static inline size_t log_size(size_t entry_num)
 	return sizeof(struct log_table_header) + entry_num * 4;
 }
 
+static void logerr(const char *fmt, ...)
+{
+	va_list argp;
+
+	if (!trailing_newline)
+		putc('\n', stdout);
+	fprintf(stdout, "%s[%6d/%6d] ", timestamp, rptr, wptr);
+	va_start(argp, fmt);
+	vfprintf(stdout, fmt, argp);
+	va_end(argp);
+	putc('\n', stdout);
+	trailing_newline = 1;
+}
+
 static int print_trace(FILE * f, const char *fmt);
 
 static void do_parse(void)
 {
 	struct log_table_header *h = log_buf;
-	u32 wptr = h->write_ptr;
+	wptr = h->write_ptr;
+
+	if (rptr > wptr) {
+		logerr("rptr overrun; try rewind it back");
+		rptr = wptr > log_buf_entries ? wptr - log_buf_entries : 0;
+	}
 
 	if ((wptr - rptr) >= log_buf_entries) {
-		/* overflow; try to parse last wrap */
+		logerr("wptr overflow; try to parse last wrap");
 		rptr = wptr - log_buf_entries;
 	}
 
@@ -182,39 +204,38 @@ static void do_parse(void)
 		uint strring_offset;
 
 		evt = h->evt[rptr % log_buf_entries];
-		if (evt.hdr.signature != HDR_SIGNATURE_MAGIC)
+		if (evt.hdr.signature != HDR_SIGNATURE_MAGIC) {
+			logerr("Signature magic mismatch 0x%08x", evt.param);
 			continue;
+		}
 
 		strring_offset = evt.hdr.strring_offset
 				 << 2; /* promote to 20 bits */
-		if (strring_offset > str_sz)
+		if (strring_offset > str_sz) {
+			logerr("String offset [%d/%lu] overflow",
+			       strring_offset, str_sz);
 			continue;
+		}
 
 		snprintf(module_string, sizeof(module_string),
-			 "[%6d] %9s %s : ", rptr, modules[evt.hdr.module],
+			 "%s[%6d/%6d] %9s %s : ",
+			 timestamp, rptr, wptr, modules[evt.hdr.module],
 			 levels[evt.hdr.level]);
 		fmt = str_buf + strring_offset;
 		params_dwords = evt.hdr.params_dwords_lsb << 0;
 		params_dwords |= evt.hdr.params_dwords_msb << 2;
 
 		if (params_dwords > 2 * MAX_PARAMS) {
-			if (!trailing_newline)
-				putchar('\n');
-			printf("%sParameters length (%d) exceeds max (%d)\n",
-			       module_string, params_dwords, MAX_PARAMS);
-			printf("%s%s\n", module_string, fmt);
-			trailing_newline = 1;
+			logerr("Params length (%d) exceeds max (%d) in %s",
+			       params_dwords, MAX_PARAMS, fmt);
 			continue;
 		}
 
 		rptr_param_last = rptr + params_dwords;
 
 		if (rptr_param_last > wptr) {
-			if (!trailing_newline)
-				putchar('\n');
-			printf("%sParameters length (%d) overflows wptr (%d)\n",
-			       module_string, params_dwords, wptr);
-			trailing_newline = 1;
+			logerr("Params length (%d) overflows wptr (%d) in %s",
+			       params_dwords, wptr, fmt);
 			rptr_param_last = wptr;
 		}
 
@@ -226,23 +247,26 @@ static void do_parse(void)
 		} else {
 			/* Separate lines from different modules */
 			if (prev_module != evt.hdr.module) {
-				putchar('\n');
-				fputs(module_string, stdout);
+				printf("\n%s", module_string);
 			} else if (strncmp("[NNL]", fmt, 5) == 0) {
 				fmt += 5;
 			} else if (!h->module_level_enable[prev_module]
-					    .disable_new_line) {
-				putchar('\n');
-				fputs(module_string, stdout);
+					.disable_new_line) {
+				printf("\n%s", module_string);
 			}
 		}
 
 		print_trace(stdout, fmt);
 		prev_module = evt.hdr.module;
+
+		if (rptr - 1 > rptr_param_last)
+			logerr("Params overflow (%d/%d)",
+			       rptr - 1, rptr_param_last);
+		else if (rptr - 1 != rptr_param_last)
+			logerr("Params underflow (%d/%d)",
+			       rptr - 1, rptr_param_last);
 		rptr = rptr_param_last;
 	}
-
-	fflush(stdout);
 }
 
 /* Start of vfprintf implementation taken from musl libc [1]
@@ -1199,6 +1223,23 @@ static struct RGF_USER_USAGE read_rgf_user_usage(const char *path)
 	return rgf.value;
 }
 
+static void update_timestamp(void)
+{
+	int toffset;
+	struct timespec ts;
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	toffset = strftime(timestamp, sizeof(timestamp), "%T",
+			   gmtime(&ts.tv_sec));
+
+	if (toffset > 0)
+		snprintf(timestamp + toffset, sizeof(timestamp) - toffset,
+			 ".%09ld UTC ", ts.tv_nsec);
+	else
+		snprintf(timestamp, sizeof(timestamp),
+			 "00:00:00.000000000 UTC ");
+}
+
 int main(int argc, char *argv[])
 {
 	const char *mod;
@@ -1207,23 +1248,27 @@ int main(int argc, char *argv[])
 	char *peri = 0; /* file to read */
 	char *rgf_path;
 	char *endptr;
+	unsigned long poll_interval_ns = 100UL * 1000000UL;
+	struct timespec t1;
 	struct RGF_USER_USAGE rgf_user_usage;
+	static int enable_timestamp; /* = 0; */
+	static int once; /* = 0; */
 	static int help; /* = 0; */
 	size_t extra_space;
 	static struct option long_options[] = {
 		{ "memdump", required_argument, NULL, 'm' },
-		{ "offset", optional_argument, NULL, 'o' },
-		{ "logsize", optional_argument, NULL, 'l' },
+		{ "offset", required_argument, NULL, 'o' },
+		{ "logsize", required_argument, NULL, 'l' },
 		{ "strings", required_argument, NULL, 's' },
+		{ "interval", required_argument, NULL, 'i' },
+		{ "timestamp", no_argument, &enable_timestamp, 1 },
 		{ "once", no_argument, &once, 1 },
 		{ "help", no_argument, &help, 1 },
 		{ 0, 0, 0, 0 }
 	};
 	do {
-		c = getopt_long(argc, argv, "m:o::l::s:1", long_options, &i);
+		c = getopt_long(argc, argv, "m:o:l:s:i:t1h", long_options, &i);
 		switch (c) {
-		case 0:
-			break;
 		case 'm': /* memdump */
 			peri = optarg;
 			break;
@@ -1247,9 +1292,20 @@ int main(int argc, char *argv[])
 		case 's': /* strings */
 			strings_bin = optarg;
 			break;
-		case '1':
+		case 'i': /* interval */
+			poll_interval_ns = strtoul(optarg, &endptr, 0)
+					 * 1000000UL;
+			if (*endptr != '\0')
+				errx(1, "Unable to parse poll interval [%s]",
+				     optarg);
+			break;
+		case 't': /* timestamp */
+			enable_timestamp = 1;
+			break;
+		case '1': /* once */
 			once = 1;
 			break;
+		case 0:  /* flag */
 		case -1: /* end of options */
 			break;
 		default:
@@ -1267,7 +1323,7 @@ int main(int argc, char *argv[])
 
 		if (!log_buf_entries)
 			log_buf_entries =
-				LOG_SIZE_FW_LUT[rgf_user_usage.log_size];
+				LOG_SIZE_FW_LUT[rgf_user_usage.log_size] / 4;
 	}
 
 	if (help ||
@@ -1283,12 +1339,18 @@ int main(int argc, char *argv[])
 		       "  -l, --logsize=NUMBER		Log buffer size, entries.\n"
 		       "				Default - read from RGF\n"
 		       "  -o, --offset=NUMBER		Offset of the log buffer in memdump, bytes.\n"
-		       "				Defaul - read from RGF\n"
+		       "				Default - read from RGF\n"
+		       "  -i, --interval=msec		Polling interval\n"
+		       "				Default - 100 ms\n"
+		       "  -t, --timestamp		Print timestamps\n"
 		       "  -1, --once			Read and parse once and exit, otherwise\n"
 		       "				keep reading infinitely\n",
 		       argv[0]);
 		exit(1);
 	}
+
+	if (clock_gettime(CLOCK_MONOTONIC, &t1) < 0)
+		errx(1, "Unable to read the CLOCK");
 
 	printf("memdump file: <%s> offset: 0x%zx entries: %zd"
 	       " strings: <%s> once: %d\n",
@@ -1308,8 +1370,10 @@ int main(int argc, char *argv[])
 		     log_size(log_buf_entries));
 	struct log_table_header *h = log_buf;
 
+	if (enable_timestamp)
+		update_timestamp();
 	read_log(peri, log_buf, log_offset, log_size(log_buf_entries));
-	u32 wptr = h->write_ptr;
+	wptr = h->write_ptr;
 
 	if ((wptr - rptr) >= log_buf_entries) {
 		/* overflow; try to parse last wrap */
@@ -1331,7 +1395,14 @@ int main(int argc, char *argv[])
 		do_parse();
 		if (once)
 			break;
-		usleep(100 * 1000);
+
+		t1.tv_sec += (t1.tv_nsec + poll_interval_ns) / 1000000000L;
+		t1.tv_nsec = (t1.tv_nsec + poll_interval_ns) % 1000000000L;
+		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &t1, NULL);
+		clock_gettime(CLOCK_MONOTONIC, &t1);
+
+		if (enable_timestamp)
+			update_timestamp();
 		read_log(peri, log_buf, log_offset, log_size(log_buf_entries));
 	}
 	return 0;

@@ -1561,7 +1561,7 @@ wmi_evt_sched_scan_result(struct wil6210_vif *vif, int id, void *d, int len)
 		wil_err(wil, "cfg80211_inform_bss_frame() failed\n");
 	}
 
-	cfg80211_sched_scan_results(wiphy);
+	cfg80211_sched_scan_results(wiphy, 0);
 }
 
 static void wil_link_stats_store_basic(struct wil6210_vif *vif,
@@ -1843,6 +1843,8 @@ wmi_evt_reassoc_status(struct wil6210_vif *vif, int id, void *d, int len)
 	/* capinfo(u16) + status_code(u16) + associd(u16) + IEs */
 	const size_t assoc_resp_ie_offset = sizeof(u16) * 3;
 	u16 d_len;
+	int freq;
+	struct cfg80211_roam_info info;
 
 	if (ies_len < 0) {
 		wil_err(wil, "ft reassoc event too short, len %d\n", len);
@@ -1941,8 +1943,20 @@ wmi_evt_reassoc_status(struct wil6210_vif *vif, int id, void *d, int len)
 	del_timer_sync(&vif->connect_timer);
 
 	cfg80211_ref_bss(wiphy, vif->bss);
-	cfg80211_roamed_bss(ndev, vif->bss, assoc_req_ie, assoc_req_ie_len,
-						assoc_resp_ie, assoc_resp_ie_len, GFP_KERNEL);
+	if (spec_ch)
+		freq = ieee80211_channel_to_frequency(spec_ch,
+						      NL80211_BAND_60GHZ);
+	else
+		freq = ieee80211_channel_to_frequency(ch, NL80211_BAND_60GHZ);
+
+	memset(&info, 0, sizeof(info));
+	info.channel = ieee80211_get_channel(wiphy, freq);
+	info.bss = vif->bss;
+	info.req_ie = assoc_req_ie;
+	info.req_ie_len = assoc_req_ie_len;
+	info.resp_ie = assoc_resp_ie;
+	info.resp_ie_len = assoc_resp_ie_len;
+	cfg80211_roamed(ndev, &info, GFP_KERNEL);
 	vif->bss = NULL;
 
 	return;

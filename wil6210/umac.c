@@ -98,7 +98,7 @@ static struct wil_umac_vap *wil_umac_find_free_vap(struct wil_umac *umac)
 
 static inline bool wil_umac_node_valid(struct wil_umac_node *node)
 {
-	return kref_read(&node->refcount) > 0;
+	return atomic_read(&node->refcount.refcount) > 0;
 }
 
 /* find free item in node_array */

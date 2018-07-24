@@ -68,6 +68,13 @@ MODULE_PARM_DESC(acs_ch_weight, " Channel weight in %. This is channel priority 
 #define WIL_BRP_ANT_LIMIT_MIN	(1)
 #define WIL_BRP_ANT_LIMIT_MAX	(27)
 
+struct iface_combination_params {
+	int num_different_channels;
+	u8 radar_detect;
+	int iftype_num[NUM_NL80211_IFTYPES];
+	u32 new_beacon_int;
+};
+
 static struct ieee80211_channel wil_60ghz_channels[] = {
 	CHAN60G(1, 0),
 	CHAN60G(2, 0),
@@ -743,7 +750,10 @@ static int wil_cfg80211_validate_add_iface(struct wil6210_priv *wil,
 		}
 	}
 	params.iftype_num[new_type]++;
-	return cfg80211_check_combinations(wil->wiphy, &params);
+	return cfg80211_check_combinations(wil->wiphy,
+					   params.num_different_channels,
+					   params.radar_detect,
+					   params.iftype_num);
 }
 
 static int wil_cfg80211_validate_change_iface(struct wil6210_priv *wil,
@@ -769,7 +779,10 @@ static int wil_cfg80211_validate_change_iface(struct wil6210_priv *wil,
 
 	if (check_combos) {
 		params.iftype_num[new_type]++;
-		ret = cfg80211_check_combinations(wil->wiphy, &params);
+		ret = cfg80211_check_combinations(wil->wiphy,
+						  params.num_different_channels,
+						  params.radar_detect,
+						  params.iftype_num);
 	}
 	return ret;
 }
@@ -778,7 +791,7 @@ static struct wireless_dev *
 wil_cfg80211_add_iface(struct wiphy *wiphy, const char *name,
 		       unsigned char name_assign_type,
 		       enum nl80211_iftype type,
-		       struct vif_params *params)
+		       u32 *flags, struct vif_params *params)
 {
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
 	struct net_device *ndev_main = wil->main_ndev, *ndev;
@@ -916,7 +929,7 @@ out:
 
 static int wil_cfg80211_change_iface(struct wiphy *wiphy,
 				     struct net_device *ndev,
-				     enum nl80211_iftype type,
+				     enum nl80211_iftype type, u32 *flags,
 				     struct vif_params *params)
 {
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
@@ -958,8 +971,8 @@ static int wil_cfg80211_change_iface(struct wiphy *wiphy,
 	case NL80211_IFTYPE_P2P_GO:
 		break;
 	case NL80211_IFTYPE_MONITOR:
-		if (params->flags)
-			wil->monitor_flags = params->flags;
+		if (flags)
+			wil->monitor_flags = *flags;
 		else
 			wil->monitor_flags = 0;
 
@@ -2614,8 +2627,7 @@ wil_cfg80211_sched_scan_start(struct wiphy *wiphy,
 }
 
 static int
-wil_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev,
-			     u64 reqid)
+wil_cfg80211_sched_scan_stop(struct wiphy *wiphy, struct net_device *dev)
 {
 	struct wil6210_priv *wil = wiphy_to_wil(wiphy);
 	struct wil6210_vif *vif = ndev_to_vif(dev);
@@ -3128,7 +3140,7 @@ static int wil_do_acs(struct wiphy *wiphy, struct wireless_dev *wdev,
 	int i;
 
 	rc = nla_parse(tb, QCA_WLAN_VENDOR_ATTR_ACS_MAX, data, data_len,
-		       qca_wlan_acs_vendor_attr, NULL);
+		       qca_wlan_acs_vendor_attr);
 	if (rc) {
 		wil_err(wil, "Invalid ATTR\n");
 		goto out;
@@ -3243,7 +3255,7 @@ static int wil_rf_sector_get_cfg(struct wiphy *wiphy,
 		return -EOPNOTSUPP;
 
 	rc = nla_parse(tb, QCA_ATTR_WIL_MAX, data, data_len,
-		       wil_rf_sector_policy, NULL);
+		       wil_rf_sector_policy);
 	if (rc) {
 		wil_err(wil, "Invalid rf sector ATTR\n");
 		return rc;
@@ -3362,7 +3374,7 @@ static int wil_rf_sector_set_cfg(struct wiphy *wiphy,
 		return -EOPNOTSUPP;
 
 	rc = nla_parse(tb, QCA_ATTR_WIL_MAX, data, data_len,
-		       wil_rf_sector_policy, NULL);
+		       wil_rf_sector_policy);
 	if (rc) {
 		wil_err(wil, "Invalid rf sector ATTR\n");
 		return rc;
@@ -3395,8 +3407,7 @@ static int wil_rf_sector_set_cfg(struct wiphy *wiphy,
 	nla_for_each_nested(nl_cfg, tb[QCA_ATTR_DMG_RF_SECTOR_CFG],
 			    tmp) {
 		rc = nla_parse_nested(tb2, QCA_ATTR_DMG_RF_SECTOR_CFG_MAX,
-				      nl_cfg, wil_rf_sector_cfg_policy,
-				      NULL);
+				      nl_cfg, wil_rf_sector_cfg_policy);
 		if (rc) {
 			wil_err(wil, "invalid sector cfg\n");
 			return -EINVAL;
@@ -3468,7 +3479,7 @@ static int wil_rf_sector_get_selected(struct wiphy *wiphy,
 		return -EOPNOTSUPP;
 
 	rc = nla_parse(tb, QCA_ATTR_WIL_MAX, data, data_len,
-		       wil_rf_sector_policy, NULL);
+		       wil_rf_sector_policy);
 	if (rc) {
 		wil_err(wil, "Invalid rf sector ATTR\n");
 		return rc;
@@ -3576,7 +3587,7 @@ static int wil_rf_sector_set_selected(struct wiphy *wiphy,
 		return -EOPNOTSUPP;
 
 	rc = nla_parse(tb, QCA_ATTR_WIL_MAX, data, data_len,
-		       wil_rf_sector_policy, NULL);
+		       wil_rf_sector_policy);
 	if (rc) {
 		wil_err(wil, "Invalid rf sector ATTR\n");
 		return rc;
@@ -3706,7 +3717,7 @@ static int wil_brp_set_ant_limit(struct wiphy *wiphy, struct wireless_dev *wdev,
 		return -ENOTSUPP;
 
 	rc = nla_parse(tb, QCA_ATTR_WIL_MAX, data, data_len,
-		       wil_brp_ant_limit_policy, NULL);
+		       wil_brp_ant_limit_policy);
 	if (rc) {
 		wil_err(wil, "Invalid ant limit ATTR\n");
 		return rc;
@@ -3760,7 +3771,7 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 	u32 wil_nl_60g_cmd_type, publish;
 
 	rc = nla_parse(tb, QCA_ATTR_WIL_MAX, data, data_len,
-		       wil_nl_60g_policy, NULL);
+		       wil_nl_60g_policy);
 	if (rc) {
 		wil_err(wil, "Invalid nl_60g_cmd ATTR\n");
 		return rc;

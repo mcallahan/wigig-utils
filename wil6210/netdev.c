@@ -464,12 +464,10 @@ wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 		dev_err(wil_to_dev(wil), "alloc_netdev failed\n");
 		return ERR_PTR(-ENOMEM);
 	}
-	if (mid == 0) {
+	if (mid == 0)
 		wil->main_ndev = ndev;
-	} else {
-		ndev->priv_destructor = wil_ndev_destructor;
-		ndev->needs_free_netdev = true;
-	}
+	else
+		ndev->destructor = wil_ndev_destructor;
 
 	vif = ndev_to_vif(ndev);
 	vif->ndev = ndev;

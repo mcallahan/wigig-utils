@@ -39,6 +39,8 @@ endif
 ifeq (y, $(CONFIG_WIL6210_NSS_SUPPORT))
 subdir-ccflags-y += -DCONFIG_WIL6210_NSS_SUPPORT
 endif
+#IOCTL write support
+subdir-ccflags-y += -DCONFIG_WIL6210_WRITE_IOCTL=1
 
 # some kernels don't set it for out-of-tree modules
 # as result, <> style #include for uapi/ don't work

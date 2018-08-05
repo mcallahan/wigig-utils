@@ -280,6 +280,8 @@ static void do_parse(void)
 			       rptr - 1, rptr_param_last);
 		rptr = rptr_param_last;
 	}
+
+	fflush(stdout);
 }
 
 /* Start of vfprintf implementation taken from musl libc [1]

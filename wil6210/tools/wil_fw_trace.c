@@ -396,16 +396,25 @@ static union arg pop_arg(int type)
 			(h->evt[rptr++ % log_buf_entries].param & str_mask);
 		break;
 
+	case CHAR:
+	case SHORT:
+	case INT:
+	case LONG:
 	case PDIFF:
+		if (rptr > rptr_param_last) {
+			arg.i = -1;
+			break;
+		}
+
+		arg.i = (int32_t)h->evt[rptr++ % log_buf_entries].param;
+		break;
+
+	case UCHAR:
+	case USHORT:
+	case UINT:
+	case ULONG:
 	case UIPTR:
 	case SIZET:
-	case SHORT:
-	case USHORT:
-	case CHAR:
-	case UCHAR:
-	case INT:
-	case UINT:
-	case LONG:
 		if (rptr > rptr_param_last) {
 			arg.i = -1;
 			break;

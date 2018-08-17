@@ -980,12 +980,13 @@ void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev)
 		}
 #endif /* #if defined(CONFIG_WIL6210_NSS_SUPPORT) */
 		if (deliver_skb) {
-			skb->protocol = eth_type_trans(skb, ndev);
-			skb->dev = ndev;
-			if (slave_mode)
+			if (slave_mode) {
 				rc = wil_slave_rx_data(vif, cid, skb);
-			else
+			} else {
+				skb->protocol = eth_type_trans(skb, ndev);
+				skb->dev = ndev;
 				rc = napi_gro_receive(&wil->napi_rx, skb);
+			}
 		}
 		wil_dbg_txrx(wil, "Rx complete %d bytes => %s\n",
 			     len, gro_res_str[rc]);

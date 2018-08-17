@@ -19,7 +19,7 @@
 #include <linux/netdevice.h>
 
 /* increment whenever changing wil_slave_ops or wil_slave_rops */
-#define WIL_SLAVE_API_VERSION	2
+#define WIL_SLAVE_API_VERSION	3
 
 /* these constants must be in sync with definition in wmi.h */
 #define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	1024

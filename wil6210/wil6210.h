@@ -62,8 +62,6 @@ union wil_tx_desc;
 
 #define WIL_BOARD_FILE_NAME "wil6210.brd" /* board & radio parameters */
 
-#define WIL_PULSE_FILE_NAME "wil6210.pls" /* Pulse file */
-
 #define WIL_DEFAULT_BUS_REQUEST_KBPS 128000 /* ~1Gbps */
 #define WIL_MAX_BUS_REQUEST_KBPS 800000 /* ~6.1Gbps */
 #define WIL_11AD_BUS_REQUEST_KBPS 600000 /* ~4.6Gbps */
@@ -1574,7 +1572,6 @@ int wil_request_firmware(struct wil6210_priv *wil, const char *name,
 			 bool load);
 int wil_request_board(struct wil6210_priv *wil, const char *name);
 bool wil_fw_verify_file_exists(struct wil6210_priv *wil, const char *name);
-int wil_request_pulse(struct wil6210_priv *wil, const char *name);
 
 void wil_pm_runtime_allow(struct wil6210_priv *wil);
 void wil_pm_runtime_forbid(struct wil6210_priv *wil);

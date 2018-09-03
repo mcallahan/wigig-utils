@@ -1847,12 +1847,8 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 		if (rc)
 			goto out;
 
-		if (radar_mode) {
-			wil_info(wil, "Radar mode, loading pulse file....\n");
-			rc = wil_request_pulse(wil, WIL_PULSE_FILE_NAME);
-			if (rc)
-				goto out;
-		}
+		if (radar_mode)
+			wil_info(wil, "Radar mode...\n");
 
 		wil_pre_fw_config(wil);
 		wil_release_cpu(wil);

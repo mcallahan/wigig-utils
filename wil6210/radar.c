@@ -50,6 +50,8 @@ int wil_rdr_init(struct wil6210_priv *wil)
 
 	wil->rdr_ctx.fw_cb->fw_tail = cpu_to_le32(1);
 
+	spin_lock_init(&wil->rdr_ctx.sw_head_lock);
+
 	return 0;
 }
 
@@ -225,6 +227,8 @@ int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data)
 	void __user *dest;
 	void *src;
 	u32 length;
+	ulong flags;
+	int rc = 0;
 
 	if (!ctx->fifo || ctx->fifo_size_pulses == 0)
 		return -EFAULT;
@@ -236,6 +240,7 @@ int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data)
 	memcpy(&cb, ctx->fw_cb, sizeof(struct wil_rdr_fw_cb));
 
 	/* Increment sw_head since it points to the last pulse that was read */
+	spin_lock_irqsave(&ctx->sw_head_lock, flags);
 	old_sw_head = ctx->sw_head;
 	ctx->sw_head = (ctx->sw_head + 1 - fix) % ctx->fifo_size_pulses;
 	sw_head_bytes = ctx->sw_head * ctx->pulse_size;
@@ -250,7 +255,7 @@ int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data)
 			ctx->sw_head =
 				wil_rdr_cyclic_calc(ctx->sw_head - 1 + fix,
 						    ctx->fifo_size_pulses);
-			return 0;
+			goto bail;
 		}
 		size_pulses = ctx->fifo_size_pulses;
 	}
@@ -282,8 +287,10 @@ int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data)
 		length = ctx->fifo_size - sw_head_bytes;
 		wil_dbg_rdr(wil, "1. dest = %p, src = %p, length = %u bytes\n",
 			    dest, src, length);
-		if (copy_to_user(dest, src, length))
-			return -EFAULT;
+		if (copy_to_user(dest, src, length)) {
+			rc = -EFAULT;
+			goto bail;
+		}
 
 		dest = io.block + length;
 		src = ctx->fifo;
@@ -291,8 +298,10 @@ int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data)
 		wil_dbg_rdr(wil, "2. dest = %p, src = %p, length = %u bytes\n",
 			    dest, src, length);
 	}
-	if (copy_to_user(dest, src, length))
-		return -EFAULT;
+	if (copy_to_user(dest, src, length)) {
+		rc = -EFAULT;
+		goto bail;
+	}
 
 	/* Increment counter and save last burst and pulse IDs */
 	ctx->rcvd_pulses_cntr += size_pulses;
@@ -306,6 +315,37 @@ int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data)
 	/* Write SW head pointer to RGF */
 	wil_w(wil, RGF_RDR_SW_HEAD_PTR, ctx->sw_head);
 
-	return size_bytes;
+	rc = size_bytes;
+
+bail:
+	spin_unlock_irqrestore(&ctx->sw_head_lock, flags);
+
+	return rc;
+}
+
+void wil_rdr_isr(struct wil6210_priv *wil)
+{
+	struct wil_rdr_ctx *ctx = &wil->rdr_ctx;
+	u32 old_sw_head, sw_head_inc;
+	ulong flags;
+
+	if (ctx->fifo_size_pulses == 0)
+		return;
+
+	spin_lock_irqsave(&ctx->sw_head_lock, flags);
+
+	old_sw_head = ctx->sw_head;
+	sw_head_inc = le32_to_cpu(ctx->fw_cb->sw_head_inc);
+
+	/* Increment sw_head */
+	ctx->sw_head = (ctx->sw_head + sw_head_inc) % ctx->fifo_size_pulses;
+	ctx->dropped_pulse_cnt += sw_head_inc;
+
+	/* Write SW head pointer to RGF */
+	wil_w(wil, RGF_RDR_SW_HEAD_PTR, ctx->sw_head);
+	wil_dbg_rdr(wil, "radar isr: sw_head: %u --> %u\n", old_sw_head,
+		    ctx->sw_head);
+
+	spin_unlock_irqrestore(&ctx->sw_head_lock, flags);
 }
 

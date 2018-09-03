@@ -521,6 +521,12 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 	wil6210_clear_irq(wil);
 
+	if (radar_mode) {
+		rc = wil_rdr_init(wil);
+		if (rc)
+			goto err_iounmap;
+	}
+
 	/* FW should raise IRQ when ready */
 	rc = wil_if_pcie_enable(wil);
 	if (rc) {
@@ -533,12 +539,6 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	rc = wil_if_add(wil);
 	if (rc) {
 		wil_err(wil, "wil_if_add failed: %d\n", rc);
-		goto bus_disable;
-	}
-
-	if (radar_mode) {
-		rc = wil_rdr_init(wil);
-		if (rc)
 			goto bus_disable;
 	}
 

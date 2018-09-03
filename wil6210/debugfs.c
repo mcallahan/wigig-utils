@@ -2740,6 +2740,7 @@ static const struct dbg_off dbg_wil_off[] = {
 	WIL_FIELD(tx_status_ring_order, 0644,	doff_u32),
 	WIL_FIELD(rx_buff_id_count, 0644,	doff_u32),
 	WIL_FIELD(amsdu_en, 0644,	doff_u8),
+	WIL_FIELD(rdr_ctx.dropped_pulse_cnt, 0444, doff_u32),
 	WIL_FIELD(force_edmg_channel, 0644,	doff_u8),
 	WIL_FIELD(ap_ps, 0644, doff_u8),
 	WIL_FIELD(tx_reserved_entries, 0644, doff_u32),

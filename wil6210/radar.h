@@ -28,5 +28,6 @@ int wil_rdr_alloc_buffer(struct wil6210_priv *wil, u32 *fifo_size);
 void wil_rdr_free_buffer(struct wil6210_priv *wil);
 int wil_ioc_memio_rdr_get_data(struct wil6210_priv *wil, void __user *data);
 void wil_rdr_uninit(struct wil6210_priv *wil);
+void wil_rdr_isr(struct wil6210_priv *wil);
 
 #endif /* WIL6210_RADAR_H */

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/interrupt.h>
 
 #include "wil6210.h"
 #include "trace.h"
+#include "radar.h"
 
 /**
  * Theory of operation:
@@ -37,7 +38,8 @@
 #define WIL6210_IMC_RX_EDMA		BIT_RX_STATUS_IRQ
 #define WIL6210_IMC_MISC_NO_HALP	(ISR_MISC_FW_READY | \
 					 ISR_MISC_MBOX_EVT | \
-					 ISR_MISC_FW_ERROR)
+					 ISR_MISC_FW_ERROR | \
+					 ISR_MISC_RADAR)
 #define WIL6210_IMC_MISC		(WIL6210_IMC_MISC_NO_HALP | \
 					 BIT_DMA_EP_MISC_ICR_HALP)
 #define WIL6210_IRQ_PSEUDO_MASK (u32)(~(BIT_DMA_PSEUDO_CAUSE_RX | \
@@ -591,6 +593,12 @@ irqreturn_t wil6210_irq_misc(int irq, void *cookie)
 			wil6210_mask_irq_misc(wil, true);
 			complete(&wil->halp.comp);
 		}
+	}
+
+	if (isr & ISR_MISC_RADAR) {
+		wil_dbg_irq(wil, "irq_misc: RADAR\n");
+		wil_rdr_isr(wil);
+		isr &= ~ISR_MISC_RADAR;
 	}
 
 	wil->isr_misc = isr;

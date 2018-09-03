@@ -418,6 +418,7 @@ enum {
 #define ISR_MISC_FW_READY	BIT_DMA_EP_MISC_ICR_FW_INT(0)
 #define ISR_MISC_MBOX_EVT	BIT_DMA_EP_MISC_ICR_FW_INT(1)
 #define ISR_MISC_FW_ERROR	BIT_DMA_EP_MISC_ICR_FW_INT(3)
+#define ISR_MISC_RADAR		BIT(23) /* RGF_DMA_EP_MISC_ICR */
 
 #define WIL_DATA_COMPLETION_TO_MS 200
 
@@ -988,6 +989,8 @@ enum wil_fw_state {
  * @last_wr_in_bytes: Same as above, in bytes
  * @last_wr_pulse_id: last pulse ID, used for debug
  * @last_wr_burst_id: last burst ID, used for debug
+ * @sw_head_inc: FW shall write here how much to increment the sw_head on radar
+ * interrupt.
  * @reserved: This structure must be aligned with FW. The overall size should be
  * 64 bytes.
  */
@@ -999,7 +1002,8 @@ struct wil_rdr_fw_cb {
 	__le32 last_wr_in_bytes;
 	__le32 last_wr_pulse_id;
 	__le32 last_wr_burst_id;
-	__le32 reserved[9];
+	__le32 sw_head_inc;
+	__le32 reserved[8];
 } __packed;
 
 /**
@@ -1021,6 +1025,9 @@ struct wil_rdr_fw_cb {
  * zero on radar_alloc_buffer command
  * @last_burst_id: Last received burst ID
  * @last_pulse_id: Last received pulse ID
+ * @sw_head_lock: Protect sw_head from simultaneous changes from ioctl and
+ * interrupt
+ * @dropped_pulse_cnt: Counts the number of dropped pulses due to FIFO overflow
  */
 struct wil_rdr_ctx {
 	struct wil_rdr_fw_cb *fw_cb;
@@ -1035,6 +1042,8 @@ struct wil_rdr_ctx {
 	u32 last_burst_id;
 	u32 last_pulse_id;
 	u32 fifo_debug_pulse_index;
+	spinlock_t sw_head_lock; /* protect sw_head */
+	u32 dropped_pulse_cnt;
 };
 
 struct wil6210_priv {

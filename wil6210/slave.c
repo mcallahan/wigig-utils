@@ -190,8 +190,6 @@ static int wil_slave_link_stats(void *dev, u8 cid,
 	struct wil6210_priv *wil = slave->wil;
 	struct wil_sta_info *sta;
 
-	wil_dbg_misc(wil, "slave_link_stats, cid %d\n", cid);
-
 	if (cid >= WIL6210_MAX_CID || !stats)
 		return -EINVAL;
 

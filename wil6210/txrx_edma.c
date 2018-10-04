@@ -827,8 +827,10 @@ static int wil_rx_error_check_edma(struct wil6210_priv *wil,
 	void *msg = wil_skb_rxstatus(skb);
 
 	error = wil_rx_status_get_error(msg);
-	if (!error)
+	if (!error) {
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
 		return 0;
+	}
 
 	l2_rx_status = wil_rx_status_get_l2_rx_status(msg);
 	if (l2_rx_status != 0) {

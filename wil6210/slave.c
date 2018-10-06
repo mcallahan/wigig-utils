@@ -174,13 +174,19 @@ static void wil_slave_get_mac(void *dev, u8 *mac)
 	ether_addr_copy(mac, wil->main_ndev->perm_addr);
 }
 
-static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb)
+static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb,
+				     bool *stop_flow)
 {
 	struct wil_slave_entry *slave = dev;
 	struct wil6210_priv *wil = slave->wil;
 	struct net_device *ndev = wil->main_ndev;
+	netdev_tx_t rc;
 
-	return _wil_start_xmit(skb, ndev);
+	rc = _wil_start_xmit(skb, ndev);
+	if (stop_flow && cid < WIL6210_MAX_CID)
+		*stop_flow = wil->sta[cid].net_queue_stopped;
+
+	return rc;
 }
 
 static int wil_slave_link_stats(void *dev, u8 cid,
@@ -543,8 +549,7 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 	if (sta->status != wil_sta_unused) {
 		wil_slave_evt_disconnect(vif, evt->cid);
 
-		if (WIL_Q_PER_STA_USED(vif))
-			wil_update_cid_net_queues_bh(wil, vif, evt->cid, true);
+		wil_update_cid_net_queues_bh(wil, vif, evt->cid, true);
 		sta->status = wil_sta_unused;
 		sta->mid = U8_MAX;
 		sta->fst_link_loss = false;

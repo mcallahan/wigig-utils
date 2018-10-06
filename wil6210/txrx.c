@@ -2226,6 +2226,12 @@ static void wil_tx_stop_cid_queues(struct wil6210_priv *wil,
 	struct net_device *ndev = vif_to_ndev(vif);
 	u16 start_qid, qid, queues_per_cid;
 
+	/* in slave mode no need to start/stop queues, only track
+	 * the queue stop state for updating the master
+	 */
+	if (slave_mode)
+		goto out;
+
 	queues_per_cid = ac_queues ? WIL6210_TX_AC_QUEUES : 1;
 	start_qid = cid * queues_per_cid;
 
@@ -2237,6 +2243,7 @@ static void wil_tx_stop_cid_queues(struct wil6210_priv *wil,
 
 		netif_tx_stop_queue(txq);
 	}
+out:
 	if (cid < max_assoc_sta)
 		wil->sta[cid].net_queue_stopped = true;
 }
@@ -2247,6 +2254,12 @@ static void wil_tx_wake_cid_queues(struct wil6210_priv *wil,
 {
 	struct net_device *ndev = vif_to_ndev(vif);
 	u16 start_qid, qid, queues_per_cid;
+
+	/* in slave mode no need to start/stop queues, only track
+	 * the queue stop state for updating the master
+	 */
+	if (slave_mode)
+		goto out;
 
 	queues_per_cid = ac_queues ? WIL6210_TX_AC_QUEUES : 1;
 	start_qid = cid * queues_per_cid;
@@ -2259,6 +2272,7 @@ static void wil_tx_wake_cid_queues(struct wil6210_priv *wil,
 
 		netif_tx_wake_queue(txq);
 	}
+out:
 	if (cid < max_assoc_sta)
 		wil->sta[cid].net_queue_stopped = false;
 }
@@ -2328,7 +2342,7 @@ static inline void __wil_update_net_queues(struct wil6210_priv *wil,
 		/* no need to stop/wake net queues */
 		return;
 
-	if (ring && WIL_Q_PER_STA_USED(vif)) {
+	if (ring && (WIL_Q_PER_STA_USED(vif) || slave_mode)) {
 		__wil_update_net_queues_per_sta(wil, vif, ring, check_stop);
 		return;
 	}
@@ -2407,7 +2421,7 @@ void wil_update_cid_net_queues_bh(struct wil6210_priv *wil,
 				  int cid,
 				  bool should_stop)
 {
-	if (!WIL_Q_PER_STA_USED(vif)) {
+	if (!WIL_Q_PER_STA_USED(vif) && !slave_mode) {
 		wil_update_net_queues_bh(wil, vif, NULL, should_stop);
 		return;
 	}

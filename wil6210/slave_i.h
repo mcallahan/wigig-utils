@@ -37,6 +37,7 @@ void wil_slave_evt_connect(struct wil6210_vif *vif,
 			   const u8 *mac, u8 cid);
 void wil_slave_evt_disconnect(struct wil6210_vif *vif, u8 cid);
 int wil_slave_rx_data(struct wil6210_vif *vif, u8 cid, struct sk_buff *skb);
+void wil_slave_flow_control(struct wil6210_vif *vif, u8 cid, bool stop_tx);
 const char *wil_slave_get_board_file(struct wil6210_priv *wil);
 
 #endif /* __WIL6210_SLAVE_I_H__ */

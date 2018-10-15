@@ -174,19 +174,13 @@ static void wil_slave_get_mac(void *dev, u8 *mac)
 	ether_addr_copy(mac, wil->main_ndev->perm_addr);
 }
 
-static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb,
-				     bool *stop_flow)
+static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb)
 {
 	struct wil_slave_entry *slave = dev;
 	struct wil6210_priv *wil = slave->wil;
 	struct net_device *ndev = wil->main_ndev;
-	netdev_tx_t rc;
 
-	rc = _wil_start_xmit(skb, ndev);
-	if (stop_flow && cid < WIL6210_MAX_CID)
-		*stop_flow = wil->sta[cid].net_queue_stopped;
-
-	return rc;
+	return _wil_start_xmit(skb, ndev);
 }
 
 static int wil_slave_link_stats(void *dev, u8 cid,
@@ -626,6 +620,18 @@ int wil_slave_rx_data(struct wil6210_vif *vif, u8 cid, struct sk_buff *skb)
 		return slave->rops.rx_data(master_ctx, cid, skb);
 	else
 		return napi_gro_receive(&wil->napi_rx, skb);
+}
+
+void wil_slave_flow_control(struct wil6210_vif *vif, u8 cid, bool stop_tx)
+{
+	struct wil_slave_entry *slave;
+	void *master_ctx;
+
+	slave = wil_get_slave_ctx(vif, &master_ctx);
+	if (!slave)
+		return;
+
+	slave->rops.flow_control(master_ctx, cid, stop_tx);
 }
 
 const char *wil_slave_get_board_file(struct wil6210_priv *wil)

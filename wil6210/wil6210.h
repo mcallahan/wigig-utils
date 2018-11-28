@@ -44,7 +44,7 @@ extern uint max_assoc_sta;
 extern bool ac_queues;
 extern bool q_per_sta;
 extern bool ftm_mode;
-extern ushort headroom_size;
+extern uint headroom_size;
 extern u8 slave_mode;
 
 struct wil6210_priv;

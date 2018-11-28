@@ -53,7 +53,7 @@ MODULE_PARM_DESC(rx_large_buf, " allocate 8KB RX buffers, default - no");
 
 #define WIL6210_MAX_HEADROOM_SIZE	(256)
 
-ushort headroom_size; /* = 0; */
+uint headroom_size; /* = 0; */
 static int headroom_size_set(const char *val, const struct kernel_param *kp)
 {
 	int ret;

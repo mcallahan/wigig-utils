@@ -1495,4 +1495,6 @@ int wmi_addba_rx_resp_edma(struct wil6210_priv *wil, u8 mid, u8 cid,
 int wil_wmi2spec_ch(u8 wmi_ch, u8 *spec_ch);
 int wil_spec2wmi_ch(u8 spec_ch, u8 *wmi_ch);
 
+void update_supported_bands(struct wil6210_priv *wil);
+
 #endif /* __WIL6210_H__ */

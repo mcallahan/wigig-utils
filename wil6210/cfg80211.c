@@ -81,7 +81,7 @@ static struct ieee80211_channel wil_60ghz_channels[] = {
 	CHAN60G(1, 0),
 	CHAN60G(2, 0),
 	CHAN60G(3, 0),
-/* channel 4 not supported yet */
+	CHAN60G(4, 0),
 };
 
 enum wil_nl_60g_cmd_type {
@@ -126,6 +126,26 @@ struct wil_nl_60g_debug_force_wmi {
 	struct wil_nl_60g_debug hdr;
 	u32 enable;
 } __packed;
+
+static int wil_num_supported_channels(struct wil6210_priv *wil)
+{
+	int num_channels = ARRAY_SIZE(wil_60ghz_channels);
+
+	if (!test_bit(WMI_FW_CAPABILITY_CHANNEL_4, wil->fw_capabilities))
+		num_channels--;
+
+	return num_channels;
+}
+
+void update_supported_bands(struct wil6210_priv *wil)
+{
+	struct wiphy *wiphy = wil_to_wiphy(wil);
+
+	wil_dbg_misc(wil, "update supported bands");
+
+	wiphy->bands[NL80211_BAND_60GHZ]->n_channels =
+						wil_num_supported_channels(wil);
+}
 
 /* Vendor id to be used in vendor specific command and events
  * to user space.
@@ -3027,7 +3047,7 @@ static int wil_start_acs_survey(struct wil6210_priv *wil, uint dwell_time,
 			.scan_type = WMI_PASSIVE_SCAN,
 			.dwell_time = cpu_to_le32(dwell_time),
 			.num_channels = min_t(u8, num_channels,
-					      ARRAY_SIZE(wil_60ghz_channels)),
+					      wil_num_supported_channels(wil)),
 		},
 	};
 
@@ -3264,7 +3284,7 @@ static int wil_do_acs(struct wiphy *wiphy, struct wireless_dev *wdev,
 
 	/* get list of channels allowed by regulatory */
 	num_channels = 0;
-	for (i = 0; i < ARRAY_SIZE(wil_60ghz_channels); i++) {
+	for (i = 0; i < wil_num_supported_channels(wil); i++) {
 		u32 ch_center_freq =
 				MHZ_TO_KHZ(wil_60ghz_channels[i].center_freq);
 		reg_rule = freq_reg_info(wiphy, ch_center_freq);

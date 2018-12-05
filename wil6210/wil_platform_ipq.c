@@ -108,7 +108,11 @@ void *ipq_11ad_dev_init(struct wil_platform_ops *ops,
 {
 	struct ipq11ad_ctx *ctx;
 	struct device_node *dev_node = NULL;
-	unsigned int registerdetails[2];
+	unsigned int registerdetails[4] = {0};
+	unsigned int fw_io_mem_pa;
+	unsigned int fw_io_mem_size;
+	int reserved_addr_cell;
+	int reserved_size_cell;
 	int ret = 0;
 
 	memset(ops, 0, sizeof(*ops));
@@ -129,29 +133,63 @@ void *ipq_11ad_dev_init(struct wil_platform_ops *ops,
 	ops->notify = ops_notify;
 	ops->uninit = ops_uninit;
 
-	/* ramdump - address and size */
+	/* ramdump - address and size
+	 * Expected info in DT:
+	 * reserved-memory {
+	 *      #address-cells = <2>;
+	 *      #size-cells = <2>;
+	 *      ranges;
+	 *      wigig_dump@50700000 {
+	 *              no-map;
+	 *              reg = <0x0 0x50700000 0x0 0x400000>;
+	 *      };
+	 * };
+	 */
 	dev_node = of_find_node_by_name(NULL, "wigig_dump");
 	if (dev_node) {
-		ret = of_property_read_u32_array(dev_node, "reg",
-						 &registerdetails[0], 2);
+		reserved_addr_cell = of_n_addr_cells(dev_node);
+		reserved_size_cell = of_n_size_cells(dev_node);
+		if (reserved_addr_cell == 2 && reserved_size_cell == 2) {
+			ret = of_property_read_u32_array(dev_node,
+							 "reg",
+							 &registerdetails[0],
+							 4);
+			if (!ret) {
+				fw_io_mem_pa = registerdetails[1];
+				fw_io_mem_size = registerdetails[3];
+			}
+		} else if (reserved_addr_cell == 1 && reserved_size_cell == 1) {
+			ret = of_property_read_u32_array(dev_node,
+							 "reg",
+							 &registerdetails[0],
+							 2);
+			if (!ret) {
+				fw_io_mem_pa = registerdetails[0];
+				fw_io_mem_size = registerdetails[1];
+			}
+		} else {
+			pr_err("%s: Error retrieving reg entry in wigig_dump\n",
+			       __func__);
+			goto exit;
+		}
 		if (ret) {
 			pr_err("%s: Error (%d) retrieving reg entry in wigig_dump\n",
 			       __func__, ret);
 			goto exit;
 		}
 		pr_info("%s: Physical address for fw dump: 0x%x, size: 0x%x\n",
-			__func__, registerdetails[0], registerdetails[1]);
+			__func__, fw_io_mem_pa, fw_io_mem_size);
 	} else {
 		pr_warn("%s: Error, No wigig_dump dts node available in the dts entry file\n",
 			__func__);
 		goto exit;
 	}
-	ctx->fw_io_mem_addr = ioremap(registerdetails[0], registerdetails[1]);
+	ctx->fw_io_mem_addr = ioremap(fw_io_mem_pa, fw_io_mem_size);
 	if (!ctx->fw_io_mem_addr) {
 		pr_err("%s: Error, Fail to get virtual address\n", __func__);
 		goto exit;
 	}
-	ctx->fw_io_mem_size = registerdetails[1];
+	ctx->fw_io_mem_size = fw_io_mem_size;
 
 exit:
 	return ctx;

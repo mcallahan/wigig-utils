@@ -1232,6 +1232,9 @@ int wil_tx_sring_handler(struct wil6210_priv *wil,
 					if (stats) {
 						stats->tx_packets++;
 						stats->tx_bytes += skb->len;
+
+						wil_tx_latency_calc(wil, skb,
+							&wil->sta[cid]);
 					}
 				} else {
 					ndev->stats.tx_errors++;
@@ -1497,6 +1500,11 @@ static int __wil_tx_ring_tso_edma(struct wil6210_priv *wil,
 		atomic_inc(&stats->tx_pend_packets);
 		atomic_add(skb->len, &stats->tx_pend_bytes);
 	}
+
+	if (wil->tx_latency)
+		*(ktime_t *)&skb->cb = ktime_get();
+	else
+		memset(skb->cb, 0, sizeof(ktime_t));
 
 	wil_w(wil, ring->hwtail, ring->swhead);
 

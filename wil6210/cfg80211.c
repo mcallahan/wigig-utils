@@ -1572,7 +1572,7 @@ static void wil_umac_rop_del_station(void *driver_vap_ctx, const u8 *mac,
 	struct wil6210_priv *wil = vif_to_wil(vif);
 
 	mutex_lock(&wil->mutex);
-	wil6210_disconnect(vif, mac, reason, false);
+	wil6210_disconnect(vif, mac, reason);
 	mutex_unlock(&wil->mutex);
 }
 
@@ -2498,7 +2498,7 @@ static int wil_cfg80211_del_station(struct wiphy *wiphy,
 		     params->mac, params->reason_code, vif->mid);
 
 	mutex_lock(&wil->mutex);
-	wil6210_disconnect(vif, params->mac, params->reason_code, false);
+	wil6210_disconnect(vif, params->mac, params->reason_code);
 	mutex_unlock(&wil->mutex);
 
 	return 0;

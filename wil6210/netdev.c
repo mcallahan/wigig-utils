@@ -685,7 +685,7 @@ void wil_vif_remove(struct wil6210_priv *wil, u8 mid)
 #endif
 
 	mutex_lock(&wil->mutex);
-	wil6210_disconnect(vif, NULL, WLAN_REASON_DEAUTH_LEAVING, false);
+	wil6210_disconnect(vif, NULL, WLAN_REASON_DEAUTH_LEAVING);
 	mutex_unlock(&wil->mutex);
 
 	if (vif->umac_vap) {

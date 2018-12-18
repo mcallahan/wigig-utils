@@ -18,7 +18,6 @@
 #include <linux/moduleparam.h>
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
-#include <linux/rtnetlink.h>
 
 #include "wil6210.h"
 #include "txrx.h"
@@ -478,8 +477,7 @@ static void wil_fw_error_worker(struct work_struct *work)
 	struct wil6210_priv *wil = container_of(work, struct wil6210_priv,
 						fw_error_worker);
 	struct net_device *ndev = wil->main_ndev;
-	struct wireless_dev *wdev = ndev->ieee80211_ptr;
-	int rc;
+	struct wireless_dev *wdev;
 
 	wil_dbg_misc(wil, "fw error worker\n");
 
@@ -487,6 +485,7 @@ static void wil_fw_error_worker(struct work_struct *work)
 		wil_info(wil, "No recovery - interface is down\n");
 		return;
 	}
+	wdev = ndev->ieee80211_ptr;
 
 	/* increment @recovery_count if less then WIL6210_FW_RECOVERY_TO
 	 * passed since last recovery attempt
@@ -512,7 +511,6 @@ static void wil_fw_error_worker(struct work_struct *work)
 	if (wil_wait_for_recovery(wil) != 0)
 		return;
 
-	rtnl_lock();
 	mutex_lock(&wil->mutex);
 	/* Needs adaptation for multiple VIFs
 	 * need to go over all VIFs and consider the appropriate
@@ -528,28 +526,15 @@ static void wil_fw_error_worker(struct work_struct *work)
 		break;
 	case NL80211_IFTYPE_AP:
 	case NL80211_IFTYPE_P2P_GO:
-		if (no_fw_recovery) /* upper layers do recovery */
-			break;
-		/* upper layers will see down/up events */
-		wil_info(wil, "Recovery for AP-like interface - ifdown...\n");
-		mutex_unlock(&wil->mutex); /* protected by rtnl_lock */
-		dev_close(ndev); /* never returns error */
-		msleep(1000);
-		wil_info(wil, "... ifup...\n");
-		rc = dev_open(ndev);
-		if (rc)
-			wil_err(wil, "dev_open: %d\n", rc);
-		mutex_lock(&wil->mutex);
-		wil_info(wil, "... completed\n");
+		wil_info(wil, "No recovery for AP-like interface\n");
+		/* recovery in these modes is done by upper layers */
 		break;
 	default:
 		wil_err(wil, "No recovery - unknown interface type %d\n",
 			wdev->iftype);
 		break;
 	}
-
 	mutex_unlock(&wil->mutex);
-	rtnl_unlock();
 }
 
 static int wil_find_free_ring(struct wil6210_priv *wil)

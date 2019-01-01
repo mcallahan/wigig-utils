@@ -1993,6 +1993,8 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	if (stats) {
 		atomic_inc(&stats->tx_pend_packets);
 		atomic_add(skb->len, &stats->tx_pend_bytes);
+		stats->tx_enq_packets++;
+		stats->tx_enq_bytes += skb->len;
 	}
 
 	wil_w(wil, vring->hwtail, vring->swhead);
@@ -2152,6 +2154,8 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	if (stats) {
 		atomic_inc(&stats->tx_pend_packets);
 		atomic_add(skb->len, &stats->tx_pend_bytes);
+		stats->tx_enq_packets++;
+		stats->tx_enq_bytes += skb->len;
 	}
 
 	wil_w(wil, ring->hwtail, ring->swhead);

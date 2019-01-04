@@ -93,7 +93,7 @@ static int wil_sring_alloc(struct wil6210_priv *wil,
 	/* Status messages are allocated and initialized to 0. This is necessary
 	 * since DR bit should be initialized to 0.
 	 */
-	sring->va = dma_zalloc_coherent(dev, sz, &sring->pa, GFP_KERNEL);
+	sring->va = dma_alloc_coherent(dev, sz, &sring->pa, GFP_KERNEL);
 	if (!sring->va)
 		return -ENOMEM;
 
@@ -410,15 +410,15 @@ static int wil_ring_alloc_desc_ring(struct wil6210_priv *wil,
 		ring->ctx = NULL;
 	}
 
-	ring->va = dma_zalloc_coherent(dev, sz, &ring->pa, GFP_KERNEL);
+	ring->va = dma_alloc_coherent(dev, sz, &ring->pa, GFP_KERNEL);
 	if (!ring->va)
 		goto err_free_ctx;
 
 	if (ring->is_rx) {
 		sz = sizeof(*ring->edma_rx_swtail.va);
 		ring->edma_rx_swtail.va =
-			dma_zalloc_coherent(dev, sz, &ring->edma_rx_swtail.pa,
-					    GFP_KERNEL);
+			dma_alloc_coherent(dev, sz, &ring->edma_rx_swtail.pa,
+					   GFP_KERNEL);
 		if (!ring->edma_rx_swtail.va)
 			goto err_free_va;
 	}

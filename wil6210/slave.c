@@ -215,8 +215,6 @@ static int wil_slave_link_stats(void *dev, u8 cid,
 	stats->tx_errors = sta->stats.tx_errors;
 	stats->tx_pend_packets = atomic_read(&sta->stats.tx_pend_packets);
 	stats->tx_pend_bytes = atomic_read(&sta->stats.tx_pend_bytes);
-	stats->tx_enq_packets = sta->stats.tx_enq_packets;
-	stats->tx_enq_bytes = sta->stats.tx_enq_bytes;
 
 	return 0;
 }

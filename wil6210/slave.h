@@ -19,7 +19,7 @@
 #include <linux/netdevice.h>
 
 /* increment whenever changing wil_slave_ops or wil_slave_rops */
-#define WIL_SLAVE_API_VERSION	6
+#define WIL_SLAVE_API_VERSION	5
 
 /* these constants must be in sync with definition in wmi.h */
 #define WIL_MAX_IOCTL_REPLY_PAYLOAD_SIZE	1024
@@ -40,8 +40,6 @@ struct wil_slave_link_stats {
 	u64 tx_errors;
 	u64 tx_pend_bytes;
 	u64 tx_pend_packets;
-	u64 tx_enq_bytes;
-	u64 tx_enq_packets;
 };
 
 struct wil_slave_rops {

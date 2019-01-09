@@ -584,8 +584,6 @@ struct wil_net_stats {
 	unsigned long	tx_errors;
 	atomic_t	tx_pend_bytes;
 	atomic_t	tx_pend_packets;
-	unsigned long	tx_enq_bytes;
-	unsigned long	tx_enq_packets;
 	unsigned long	rx_dropped;
 	unsigned long	rx_non_data_frame;
 	unsigned long	rx_short_frame;

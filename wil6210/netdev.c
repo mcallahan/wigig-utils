@@ -174,6 +174,9 @@ static u16 wil_select_ac_queue(struct wil6210_priv *wil, struct sk_buff *skb)
 	if (skb->priority == 0 || skb->priority > 7)
 		skb->priority = cfg80211_classify8021d(skb, NULL);
 
+	if (unlikely(skb->priority >= sizeof(wil_1d_to_queue)))
+		skb->priority = 0;
+
 	ac_qid = wil_1d_to_queue[skb->priority];
 
 	wil_dbg_txrx(wil, "select queue for priority %d -> queue %d\n",

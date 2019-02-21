@@ -52,6 +52,9 @@ unsigned short rx_ring_overflow_thrsh = WIL6210_RX_HIGH_TRSH_INIT;
 module_param(rx_ring_overflow_thrsh, ushort, 0444);
 MODULE_PARM_DESC(rx_ring_overflow_thrsh,
 		 " RX ring overflow threshold in descriptors.");
+u8 preemptive_ring_switch;
+module_param(preemptive_ring_switch, byte, 0444);
+MODULE_PARM_DESC(preemptive_ring_switch, " enable FW preemptive ring switch. default - no");
 
 /* We allow allocation of more than 1 page buffers to support large packets.
  * It is suboptimal behavior performance wise in case MTU above page size.
@@ -1298,6 +1301,21 @@ void wil_refresh_fw_capabilities(struct wil6210_priv *wil)
 	}
 
 	update_supported_bands(wil);
+
+	if (preemptive_ring_switch) {
+		if (test_bit(WMI_FW_CAPABILITY_PREEMPTIVE_RING_SWITCH,
+			     wil->fw_capabilities)) {
+			struct net_device *ndev = wil->main_ndev;
+
+			/* disable TSO with preemptive ring switch due to
+			 * HW limitation
+			 */
+			wil_info(wil, "turn off TSO due to preemptive ring switch\n");
+			ndev->hw_features &= ~(NETIF_F_TSO | NETIF_F_TSO6);
+		} else {
+			wil_info(wil, "preemptive ring switch not supported by FW\n");
+		}
+	}
 }
 
 void wil_mbox_ring_le2cpus(struct wil6210_mbox_ring *r)

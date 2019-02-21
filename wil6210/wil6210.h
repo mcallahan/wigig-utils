@@ -46,6 +46,7 @@ extern bool q_per_sta;
 extern bool ftm_mode;
 extern uint headroom_size;
 extern u8 slave_mode;
+extern u8 preemptive_ring_switch;
 
 struct wil6210_priv;
 struct wil6210_vif;

@@ -106,6 +106,7 @@ enum wmi_fw_capability {
 	WMI_FW_CAPABILITY_RAW_MODE			= 24,
 	WMI_FW_CAPABILITY_TX_REQ_EXT			= 25,
 	WMI_FW_CAPABILITY_CHANNEL_4			= 26,
+	WMI_FW_CAPABILITY_PREEMPTIVE_RING_SWITCH	= 28,
 	WMI_FW_CAPABILITY_MAX,
 };
 
@@ -834,7 +835,8 @@ struct wmi_pcp_start_cmd {
 	/* enum wmi_channel WMI_CHANNEL_9..WMI_CHANNEL_12 */
 	u8 edmg_channel;
 	u8 raw_mode;
-	u8 reserved[3];
+	u8 preemptive_switch_en;
+	u8 reserved[2];
 	/* A-BFT length override if non-0 */
 	u8 abft_len;
 	/* enum wmi_ap_sme_offload_mode_e */

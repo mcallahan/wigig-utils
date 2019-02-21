@@ -491,7 +491,6 @@ wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 			    NETIF_F_SG | NETIF_F_GRO |
 			    NETIF_F_TSO | NETIF_F_TSO6;
 
-	ndev->features |= ndev->hw_features;
 	SET_NETDEV_DEV(ndev, wiphy_dev(wdev->wiphy));
 	wdev->netdev = ndev;
 	return vif;
@@ -575,6 +574,9 @@ int wil_vif_add(struct wil6210_priv *wil, struct wil6210_vif *vif)
 		if (rc)
 			return rc;
 	}
+
+	ndev->features |= ndev->hw_features;
+
 	rc = register_netdevice(ndev);
 	if (rc < 0) {
 		dev_err(&ndev->dev, "Failed to register netdev: %d\n", rc);

@@ -2302,6 +2302,9 @@ int wmi_pcp_start(struct wil6210_vif *vif,
 {
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc;
+	bool preemptive_switch_en = preemptive_ring_switch &&
+			test_bit(WMI_FW_CAPABILITY_PREEMPTIVE_RING_SWITCH,
+				 wil->fw_capabilities);
 
 	struct wmi_pcp_start_cmd cmd = {
 		.bcon_interval = cpu_to_le16(bi),
@@ -2311,6 +2314,7 @@ int wmi_pcp_start(struct wil6210_vif *vif,
 		.pcp_max_assoc_sta = max_assoc_sta,
 		.hidden_ssid = hidden_ssid,
 		.is_go = is_go,
+		.preemptive_switch_en = preemptive_switch_en,
 		.ap_sme_offload_mode = disable_ap_sme ?
 				       WMI_AP_SME_OFFLOAD_PARTIAL :
 				       WMI_AP_SME_OFFLOAD_FULL,

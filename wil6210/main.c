@@ -52,9 +52,9 @@ unsigned short rx_ring_overflow_thrsh = WIL6210_RX_HIGH_TRSH_INIT;
 module_param(rx_ring_overflow_thrsh, ushort, 0444);
 MODULE_PARM_DESC(rx_ring_overflow_thrsh,
 		 " RX ring overflow threshold in descriptors.");
-u8 preemptive_ring_switch;
+u8 preemptive_ring_switch = true;
 module_param(preemptive_ring_switch, byte, 0444);
-MODULE_PARM_DESC(preemptive_ring_switch, " enable FW preemptive ring switch. default - no");
+MODULE_PARM_DESC(preemptive_ring_switch, " enable FW preemptive ring switch. default - yes");
 
 /* We allow allocation of more than 1 page buffers to support large packets.
  * It is suboptimal behavior performance wise in case MTU above page size.

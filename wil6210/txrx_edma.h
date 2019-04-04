@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2012-2016,2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018,2019, The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -24,7 +25,7 @@
 #define WIL_SRING_SIZE_ORDER_MAX	(WIL_RING_SIZE_ORDER_MAX)
 /* RX sring order should be bigger than RX ring order */
 #define WIL_RX_SRING_SIZE_ORDER_DEFAULT	(12)
-#define WIL_TX_SRING_SIZE_ORDER_DEFAULT	(12)
+#define WIL_TX_SRING_SIZE_ORDER_DEFAULT	(14)
 #define WIL_RX_BUFF_ARR_SIZE_DEFAULT (2600)
 
 #define WIL_DEFAULT_RX_STATUS_RING_ID 0

@@ -455,7 +455,6 @@ static int wil_rx_get_cid_by_skb(struct wil6210_priv *wil, struct sk_buff *skb)
 	 */
 	int cid = wil_rxdesc_cid(d);
 	unsigned int snaplen = wil_rx_snaplen();
-	struct ethhdr *eth;
 	struct ieee80211_hdr_3addr *hdr;
 	int i;
 	unsigned char *ta;
@@ -473,8 +472,7 @@ static int wil_rx_get_cid_by_skb(struct wil6210_priv *wil, struct sk_buff *skb)
 					    skb->len);
 			return -ENOENT;
 		}
-		eth = (void *)skb->data;
-		ta = eth->h_source;
+		ta = wil_skb_get_sa(skb);
 	} else {
 		if (unlikely(skb->len < sizeof(struct ieee80211_hdr_3addr))) {
 			wil_err_ratelimited(wil, "Short frame, len = %d\n",
@@ -815,11 +813,11 @@ void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev)
 	unsigned int len = skb->len;
 	int cid;
 	int security;
-	struct ethhdr *eth = (void *)skb->data;
+	u8 *sa, *da = wil_skb_get_da(skb);
 	/* here looking for DA, not A1, thus Rxdesc's 'mcast' indication
 	 * is not suitable, need to look at data
 	 */
-	int mcast = is_multicast_ether_addr(eth->h_dest);
+	int mcast = is_multicast_ether_addr(da);
 	struct wil_net_stats *stats;
 	struct sk_buff *xmit_skb = NULL;
 	static const char * const gro_res_str[] = {
@@ -852,15 +850,22 @@ void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev)
 		return;
 	}
 
-	if (wdev->iftype == NL80211_IFTYPE_AP && !vif->ap_isolate) {
+	if (wdev->iftype == NL80211_IFTYPE_STATION) {
+		sa = wil_skb_get_sa(skb);
+		if (mcast && ether_addr_equal(sa, ndev->dev_addr)) {
+			/* mcast packet looped back to us */
+			rc = GRO_DROP;
+			dev_kfree_skb(skb);
+			goto stats;
+		}
+	} else if (wdev->iftype == NL80211_IFTYPE_AP && !vif->ap_isolate) {
 		if (mcast) {
 			/* send multicast frames both to higher layers in
 			 * local net stack and back to the wireless medium
 			 */
 			xmit_skb = skb_copy(skb, GFP_ATOMIC);
 		} else {
-			int xmit_cid = wil_find_cid(wil, vif->mid,
-						    eth->h_dest);
+			int xmit_cid = wil_find_cid(wil, vif->mid, da);
 
 			if (xmit_cid >= 0) {
 				/* The destination station is associated to
@@ -1336,7 +1341,7 @@ static struct wil_ring *wil_find_tx_ucast(struct wil6210_priv *wil,
 					  struct sk_buff *skb)
 {
 	int i, cid;
-	struct ethhdr *eth = (void *)skb->data;
+	const u8 *da = wil_skb_get_da(skb);
 	int min_ring_id = wil_get_min_tx_ring_id(wil);
 
 	if (WIL_Q_PER_STA_USED(vif))
@@ -1347,7 +1352,7 @@ static struct wil_ring *wil_find_tx_ucast(struct wil6210_priv *wil,
 			skb_get_queue_mapping(skb) / WIL6210_TX_AC_QUEUES :
 			skb_get_queue_mapping(skb);
 	else
-		cid = wil_find_cid(wil, vif->mid, eth->h_dest);
+		cid = wil_find_cid(wil, vif->mid, da);
 
 	if (cid < 0 || cid >= max_assoc_sta)
 		return NULL;
@@ -1362,7 +1367,7 @@ static struct wil_ring *wil_find_tx_ucast(struct wil6210_priv *wil,
 			struct wil_ring_tx_data *txdata = &wil->ring_tx_data[i];
 
 			wil_dbg_txrx(wil, "find_tx_ucast: (%pM) -> [%d]\n",
-				     eth->h_dest, i);
+				     da, i);
 			if (v->va && txdata->enabled) {
 				return v;
 			} else {
@@ -1453,10 +1458,10 @@ static struct wil_ring *wil_find_tx_bcast_1(struct wil6210_priv *wil,
 static void wil_set_da_for_vring(struct wil6210_priv *wil,
 				 struct sk_buff *skb, int vring_index)
 {
-	struct ethhdr *eth = (void *)skb->data;
+	u8 *da = wil_skb_get_da(skb);
 	int cid = wil->ring2cid_tid[vring_index][0];
 
-	ether_addr_copy(eth->h_dest, wil->sta[cid].addr);
+	ether_addr_copy(da, wil->sta[cid].addr);
 }
 
 static struct wil_ring *wil_find_tx_bcast_2(struct wil6210_priv *wil,
@@ -1467,8 +1472,7 @@ static struct wil_ring *wil_find_tx_bcast_2(struct wil6210_priv *wil,
 	struct sk_buff *skb2;
 	int i;
 	u8 cid;
-	struct ethhdr *eth = (void *)skb->data;
-	char *src = eth->h_source;
+	const u8 *src = wil_skb_get_sa(skb);
 	struct wil_ring_tx_data *txdata, *txdata2;
 	int min_ring_id = wil_get_min_tx_ring_id(wil);
 
@@ -2405,8 +2409,8 @@ netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
 	struct wil6210_priv *wil = vif_to_wil(vif);
-	struct ethhdr *eth = (void *)skb->data;
-	bool bcast = is_multicast_ether_addr(eth->h_dest);
+	const u8 *da = wil_skb_get_da(skb);
+	bool bcast = is_multicast_ether_addr(da);
 	struct wil_ring *ring;
 	static bool pr_once_fw;
 	int rc;
@@ -2453,7 +2457,7 @@ netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		ring = wil_find_tx_ucast(wil, vif, skb);
 	}
 	if (unlikely(!ring)) {
-		wil_dbg_txrx(wil, "No Tx RING found for %pM\n", eth->h_dest);
+		wil_dbg_txrx(wil, "No Tx RING found for %pM\n", da);
 		goto drop;
 	}
 	/* set up vring entry */

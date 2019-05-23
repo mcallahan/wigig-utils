@@ -1099,6 +1099,7 @@ struct wil6210_priv {
 #define vif_to_ndev(v) (v->ndev)
 #define vif_to_wdev(v) (&v->wdev)
 #define WIL_Q_PER_STA_USED(v) (q_per_sta && v->wdev.iftype == NL80211_IFTYPE_AP)
+#define GET_MAX_VIFS(wil) min_t(int, (wil)->max_vifs, WIL_MAX_VIFS)
 
 static inline struct wil6210_vif *wdev_to_vif(struct wil6210_priv *wil,
 					      struct wireless_dev *wdev)

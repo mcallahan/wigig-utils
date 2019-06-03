@@ -70,6 +70,8 @@ union wil_tx_desc;
 
 #define WIL6210_TX_AC_QUEUES (4)
 
+#define WIL_BRD_SUFFIX_LEN 4 /* max 3 letters + terminating null */
+
 /**
  * extract bits [@b0:@b1] (inclusive) from the value @x
  * it should be @b0 <= @b1, or result is incorrect
@@ -956,7 +958,7 @@ struct wil6210_priv {
 	const char *hw_name;
 	const char *wil_fw_name;
 	char *board_file;
-	char board_file_country[3]; /* alpha2 */
+	char board_file_reg_suffix[WIL_BRD_SUFFIX_LEN]; /* empty or CN or FCC */
 	u32 num_of_brd_entries;
 	struct wil_brd_info *brd_info;
 	DECLARE_BITMAP(hw_capa, hw_capa_last);

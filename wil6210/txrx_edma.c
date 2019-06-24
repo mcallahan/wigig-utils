@@ -882,6 +882,11 @@ static int wil_rx_error_check_edma(struct wil6210_priv *wil,
 {
 	int l2_rx_status;
 	void *msg = wil_skb_rxstatus(skb);
+	struct net_device *ndev = wil->main_ndev;
+	struct wireless_dev *wdev = ndev->ieee80211_ptr;
+
+	if (wdev->iftype == NL80211_IFTYPE_MONITOR)
+		return 0;
 
 	l2_rx_status = wil_rx_status_get_l2_rx_status(msg);
 	if (l2_rx_status != 0) {

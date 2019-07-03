@@ -182,7 +182,7 @@ static u16 wil_select_queue(struct net_device *ndev,
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	struct ethhdr *eth = (void *)skb->data;
-	u16 qid = 0;
+	int qid = 0;
 	bool mcast;
 
 	if (!WIL_Q_PER_STA_USED(vif))

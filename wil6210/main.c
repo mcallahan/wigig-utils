@@ -82,7 +82,7 @@ static const struct kernel_param_ops mtu_max_ops = {
 module_param_cb(mtu_max, &mtu_max_ops, &mtu_max, 0444);
 MODULE_PARM_DESC(mtu_max, " Max MTU value.");
 
-static uint rx_ring_order	 = WIL_RX_RING_SIZE_ORDER_DEFAULT;
+static uint rx_ring_order;
 static uint tx_ring_order	 = WIL_TX_RING_SIZE_ORDER_DEFAULT;
 static uint bcast_ring_order	 = WIL_BCAST_RING_SIZE_ORDER_DEFAULT;
 
@@ -1037,10 +1037,13 @@ static int wil_target_reset(struct wil6210_priv *wil, int no_flash)
 
 	wil_dbg_misc(wil, "Resetting \"%s\"...\n", wil->hw_name);
 
-	/* Clear MAC link up */
-	wil_s(wil, RGF_HP_CTRL, BIT(15));
-	wil_s(wil, RGF_USER_CLKS_CTL_SW_RST_MASK_0, BIT_HPAL_PERST_FROM_PAD);
-	wil_s(wil, RGF_USER_CLKS_CTL_SW_RST_MASK_0, BIT_CAR_PERST_RST);
+	if (wil->hw_version < HW_VER_TALYN) {
+		/* Clear MAC link up */
+		wil_s(wil, RGF_HP_CTRL, BIT(15));
+		wil_s(wil, RGF_USER_CLKS_CTL_SW_RST_MASK_0,
+		      BIT_HPAL_PERST_FROM_PAD);
+		wil_s(wil, RGF_USER_CLKS_CTL_SW_RST_MASK_0, BIT_CAR_PERST_RST);
+	}
 
 	wil_halt_cpu(wil);
 
@@ -1359,8 +1362,13 @@ static int wil_get_otp_info(struct wil6210_priv *wil)
 	wil_memcpy_fromio_32(mac, wil->csr + HOSTADDR(mac_addr),
 			     sizeof(mac));
 	if (!is_valid_ether_addr(mac)) {
-		wil_err(wil, "Invalid MAC %pM\n", mac);
-		return -EINVAL;
+		u8 dummy_mac[ETH_ALEN] = {
+			0x00, 0xde, 0xad, 0x12, 0x34, 0x56,
+		};
+		if (!test_bit(WMI_FW_CAPABILITY_WMI_ONLY, wil->fw_capabilities))
+			get_random_bytes(dummy_mac + 3, 3);
+		wil_err(wil, "Invalid MAC %pM, using random %pM\n", mac, dummy_mac);
+		ether_addr_copy(mac, dummy_mac);
 	}
 
 	ether_addr_copy(ndev->perm_addr, mac);
@@ -1458,8 +1466,15 @@ static void wil_pre_fw_config(struct wil6210_priv *wil)
 	wil6210_clear_irq(wil);
 	/* CAF_ICR - clear and mask */
 	/* it is W1C, clear by writing back same value */
-	wil_s(wil, RGF_CAF_ICR + offsetof(struct RGF_ICR, ICR), 0);
-	wil_w(wil, RGF_CAF_ICR + offsetof(struct RGF_ICR, IMV), ~0);
+	if (wil->hw_version < HW_VER_TALYN_MB) {
+		wil_s(wil, RGF_CAF_ICR + offsetof(struct RGF_ICR, ICR), 0);
+		wil_w(wil, RGF_CAF_ICR + offsetof(struct RGF_ICR, IMV), ~0);
+	} else {
+		wil_s(wil,
+		      RGF_CAF_ICR_TALYN_MB + offsetof(struct RGF_ICR, ICR), 0);
+		wil_w(wil, RGF_CAF_ICR_TALYN_MB +
+		      offsetof(struct RGF_ICR, IMV), ~0);
+	}
 	/* clear PAL_UNIT_ICR (potential D0->D3 leftover)
 	 * In Talyn-MB host cannot access this register due to
 	 * access control, hence PAL_UNIT_ICR is cleared by the FW
@@ -1743,7 +1758,12 @@ int __wil_up(struct wil6210_priv *wil)
 		return rc;
 
 	/* Rx RING. After MAC and beacon */
-	rc = wil->txrx_ops.rx_init(wil, 1 << rx_ring_order);
+	if (rx_ring_order == 0)
+		rx_ring_order = wil->hw_version < HW_VER_TALYN_MB ?
+			WIL_RX_RING_SIZE_ORDER_DEFAULT :
+			WIL_RX_RING_SIZE_ORDER_TALYN_DEFAULT;
+
+	rc = wil->txrx_ops.rx_init(wil, rx_ring_order);
 	if (rc)
 		return rc;
 

@@ -65,7 +65,7 @@ static int wil_slave_ioctl(void *dev, u16 code, const u8 *req_buf, u16 req_len,
 	u16 cmd_len, reply_len, evt_len;
 	int rc;
 
-	wil_dbg_misc(wil, "slave_ioctl, code %d\n", code);
+	wil_dbg_wmi(wil, "slave_ioctl, code %d\n", code);
 
 	if (!resp_len)
 		return -EINVAL;
@@ -105,8 +105,12 @@ static int wil_slave_ioctl(void *dev, u16 code, const u8 *req_buf, u16 req_len,
 	}
 	evt_len = le16_to_cpu(reply->evt.length);
 	if (evt_len > *resp_len) {
-		wil_err(wil, "response buffer too short (have %d need %d)\n",
-			*resp_len, evt_len);
+		/* the master driver ignores the response anyway and this
+		 * can cause excessive logs, so use debug level for now
+		 */
+		wil_dbg_wmi(
+		    wil, "response buffer too short (have %d need %d)\n",
+		    *resp_len, evt_len);
 		rc = -EINVAL;
 		goto out_reply;
 	}

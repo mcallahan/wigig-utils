@@ -480,6 +480,8 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_SW_TX_REQ_EXT_CMDID";
 	case WMI_TEMP_SENSE_ALL_CMDID:
 		return "WMI_TEMP_SENSE_ALL_CMDID";
+	case WMI_RBUFCAP_CFG_CMDID:
+		return "WMI_RBUFCAP_CFG_CMD";
 	case WMI_INTERNAL_FW_IOCTL_CMDID:
 		return "WMI_INTERNAL_FW_IOCTL_CMD";
 	default:
@@ -634,6 +636,8 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_FT_REASSOC_STATUS_EVENT";
 	case WMI_TEMP_SENSE_ALL_DONE_EVENTID:
 		return "WMI_TEMP_SENSE_ALL_DONE_EVENTID";
+	case WMI_RBUFCAP_CFG_EVENTID:
+		return "WMI_RBUFCAP_CFG_EVENT";
 	case WMI_INTERNAL_FW_IOCTL_EVENTID:
 		return "WMI_INTERNAL_FW_IOCTL_EVENT";
 	case WMI_INTERNAL_FW_SET_CHANNEL:
@@ -2290,6 +2294,37 @@ out:
 	return rc;
 }
 
+int wmi_rbufcap_cfg(struct wil6210_priv *wil, bool enable, u16 threshold)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	int rc;
+
+	struct wmi_rbufcap_cfg_cmd cmd = {
+		.enable = enable,
+		.rx_desc_threshold = cpu_to_le16(threshold),
+	};
+	struct {
+		struct wmi_cmd_hdr wmi;
+		struct wmi_rbufcap_cfg_event evt;
+	} __packed reply = {
+		.evt = {.status = WMI_FW_STATUS_FAILURE},
+	};
+
+	rc = wmi_call(wil, WMI_RBUFCAP_CFG_CMDID, vif->mid, &cmd, sizeof(cmd),
+		      WMI_RBUFCAP_CFG_EVENTID, &reply, sizeof(reply),
+		      WIL_WMI_CALL_GENERAL_TO_MS);
+	if (rc)
+		return rc;
+
+	if (reply.evt.status != WMI_FW_STATUS_SUCCESS) {
+		wil_err(wil, "RBUFCAP_CFG failed. status %d\n",
+			reply.evt.status);
+		rc = -EINVAL;
+	}
+
+	return rc;
+}
+
 int wmi_pcp_start(struct wil6210_vif *vif,
 		  int bi, u8 wmi_nettype, u8 chan, u8 hidden_ssid, u8 is_go)
 {
@@ -2946,7 +2981,7 @@ int wmi_addba_rx_resp(struct wil6210_priv *wil,
 		.dialog_token = token,
 		.status_code = cpu_to_le16(status),
 		/* bit 0: A-MSDU supported
-		 * bit 1: policy (should be 0 for us)
+		 * bit 1: policy (controlled by FW)
 		 * bits 2..5: TID
 		 * bits 6..15: buffer size
 		 */
@@ -3000,7 +3035,7 @@ int wmi_addba_rx_resp_edma(struct wil6210_priv *wil, u8 mid, u8 cid, u8 tid,
 		.dialog_token = token,
 		.status_code = cpu_to_le16(status),
 		/* bit 0: A-MSDU supported
-		 * bit 1: policy (should be 0 for us)
+		 * bit 1: policy (controlled by FW)
 		 * bits 2..5: TID
 		 * bits 6..15: buffer size
 		 */

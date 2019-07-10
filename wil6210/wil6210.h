@@ -1560,4 +1560,5 @@ int wil_spec2wmi_ch(u8 spec_ch, u8 *wmi_ch);
 
 void update_supported_bands(struct wil6210_priv *wil);
 
+void wil_clear_fw_log_addr(struct wil6210_priv *wil);
 #endif /* __WIL6210_H__ */

@@ -36,6 +36,7 @@ extern bool ftm_mode;
 extern uint headroom_size;
 extern u8 slave_mode;
 extern u8 preemptive_ring_switch;
+extern bool drop_if_ring_full;
 
 struct wil6210_priv;
 struct wil6210_vif;
@@ -97,6 +98,7 @@ static inline u32 WIL_GET_BITS(u32 x, int b0, int b1)
 #define WIL_MAX_AMPDU_SIZE_128	(128 * 1024) /* FW/HW limit */
 #define WIL_MAX_AGG_WSIZE_64	(64) /* FW/HW limit */
 #define WIL6210_MAX_STATUS_RINGS	(8)
+#define WIL_DEFAULT_TX_RESERVED_ENTRIES (16)
 
 /* Hardware offload block adds the following:
  * 26 bytes - 3-address QoS data header
@@ -509,13 +511,17 @@ enum { /* for wil_ctx.mapped_as */
 	wil_mapped_as_page = 2,
 };
 
+/* for wil_ctx.flags */
+#define WIL_CTX_FLAG_RESERVED_USED 0x01
+
 /**
  * struct wil_ctx - software context for ring descriptor
  */
 struct wil_ctx {
 	struct sk_buff *skb;
 	u8 nr_frags;
-	u8 mapped_as;
+	u8 mapped_as:4;
+	u8 flags:4;
 };
 
 struct wil_desc_ring_rx_swtail { /* relevant for enhanced DMA only */
@@ -650,6 +656,9 @@ struct wil_ring_tx_data {
 	u8 mid;
 	u8 cid; /* map back to cid for updating statistics */
 	spinlock_t lock;
+	u32 tx_reserved_count; /* available reserved tx entries */
+	u32 tx_reserved_count_used;
+	u32 tx_reserved_count_not_avail;
 };
 
 enum { /* for wil6210_priv.status */
@@ -1093,6 +1102,8 @@ struct wil6210_priv {
 	void *slave_ctx;
 
 	struct work_struct pci_linkdown_recovery_worker;
+
+	u32 tx_reserved_entries; /* Used only in Talyn code-path */
 };
 
 #define wil_to_wiphy(i) (i->wiphy)

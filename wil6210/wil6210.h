@@ -1070,6 +1070,11 @@ struct wil6210_priv {
 	int fw_calib_result;
 	u8 tt_data_set;
 	struct wmi_tt_data tt_data;
+	struct {
+		u8 enabled;
+		short omni;
+		short direct;
+	} snr_thresh;
 
 	/* current reg domain configured in kernel */
 	char regdomain[3]; /* alpha2 */
@@ -1507,6 +1512,8 @@ void wil_halp_vote(struct wil6210_priv *wil);
 void wil_halp_unvote(struct wil6210_priv *wil);
 void wil6210_set_halp(struct wil6210_priv *wil);
 void wil6210_clear_halp(struct wil6210_priv *wil);
+
+int wmi_set_snr_thresh(struct wil6210_priv *wil, short omni, short direct);
 
 int wmi_start_sched_scan(struct wil6210_priv *wil,
 			 struct cfg80211_sched_scan_request *request);

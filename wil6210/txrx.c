@@ -25,11 +25,22 @@
 
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 bool rx_align_2 = true;
+MODULE_PARM_DESC(rx_align_2, " align Rx buffers on 4*n+2, default - true");
+
+bool drop_if_ring_full = true;
+MODULE_PARM_DESC(drop_if_ring_full,
+                 " drop Tx packets in case tx ring is full, default - true");
 #else
 bool rx_align_2;
-#endif
-module_param(rx_align_2, bool, 0444);
 MODULE_PARM_DESC(rx_align_2, " align Rx buffers on 4*n+2, default - no");
+
+bool drop_if_ring_full;
+MODULE_PARM_DESC(drop_if_ring_full,
+                 " drop Tx packets in case tx ring is full, default - no");
+#endif
+
+module_param(rx_align_2, bool, 0444);
+module_param(drop_if_ring_full, bool, 0444);
 
 bool rx_large_buf;
 module_param(rx_large_buf, bool, 0444);
@@ -60,11 +71,6 @@ static const struct kernel_param_ops headroom_ops = {
 module_param_cb(headroom_size, &headroom_ops, &headroom_size, 0644);
 MODULE_PARM_DESC(headroom_size,
 		 " headroom size for rx skb allocation, default - 0");
-
-bool drop_if_ring_full;
-module_param(drop_if_ring_full, bool, 0444);
-MODULE_PARM_DESC(drop_if_ring_full,
-		 " drop Tx packets in case tx ring is full");
 
 /* Layer 2 Update frame (802.2 Type 1 LLC XID Update response) */
 struct l2_update_frame {

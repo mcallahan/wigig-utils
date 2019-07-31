@@ -564,6 +564,59 @@ snr_thresh_store(struct device *dev,
 
 static DEVICE_ATTR_RW(snr_thresh);
 
+static ssize_t
+vr_profile_show(struct device *dev, struct device_attribute *attr,
+		char *buf)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	ssize_t len;
+
+	len = snprintf(buf, PAGE_SIZE, "%s\n",
+		       wil_get_vr_profile_name(wil->vr_profile));
+
+	return len;
+}
+
+static ssize_t
+vr_profile_store(struct device *dev, struct device_attribute *attr,
+		 const char *buf, size_t count)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	u8 profile;
+	int rc = 0;
+
+	if (kstrtou8(buf, 0, &profile))
+		return -EINVAL;
+
+	if (test_bit(wil_status_fwready, wil->status)) {
+		wil_err(wil, "Cannot set VR while interface is up\n");
+		return -EIO;
+	}
+
+	if (profile == wil->vr_profile) {
+		wil_info(wil, "Ignore same VR profile %s\n",
+			 wil_get_vr_profile_name(wil->vr_profile));
+		return count;
+	}
+
+	wil_info(wil, "Sysfs: set VR profile to %s\n",
+		 wil_get_vr_profile_name(profile));
+
+	/* Enabling of VR mode is done from wil_reset after FW is ready.
+	 * Disabling is done from here.
+	 */
+	if (profile == WMI_VR_PROFILE_DISABLED) {
+		rc = wil_vr_update_profile(wil, profile);
+		if (rc)
+			return rc;
+	}
+	wil->vr_profile = profile;
+
+	return count;
+}
+
+static DEVICE_ATTR_RW(vr_profile);
+
 static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_ftm_txrx_offset.attr,
 	&dev_attr_thermal_throttling.attr,
@@ -573,6 +626,7 @@ static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_qos_link_prio.attr,
 	&dev_attr_lo_power_calib.attr,
 	&dev_attr_snr_thresh.attr,
+	&dev_attr_vr_profile.attr,
 	NULL
 };
 

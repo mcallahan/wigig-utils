@@ -4357,3 +4357,41 @@ int wil_wmi_ring_priority(struct wil6210_vif *vif, int ring_idx,
 
 	return 0;
 }
+
+int wmi_lo_power_calib_from_otp(struct wil6210_priv *wil, u8 index)
+{
+	struct net_device *ndev = wil->main_ndev;
+	struct wil6210_vif *vif = ndev_to_vif(ndev);
+	int rc;
+	struct wmi_lo_power_calib_from_otp_cmd cmd = {
+		.index = index,
+	};
+	struct {
+		struct wmi_cmd_hdr wmi;
+		struct wmi_lo_power_calib_from_otp_event evt;
+	} __packed reply;
+
+	wil_dbg_wmi(wil, "Setting lo power calibration #%d from otp\n", index);
+
+	if (!test_bit(WMI_FW_CAPABILITY_LO_POWER_CALIB_FROM_OTP,
+		      wil->fw_capabilities))
+		return -ENOTSUPP;
+
+	reply.evt.status = WMI_FW_STATUS_FAILURE;
+
+	rc = wmi_call(wil, WMI_LO_POWER_CALIB_FROM_OTP_CMDID, vif->mid, &cmd,
+		      sizeof(cmd), WMI_LO_POWER_CALIB_FROM_OTP_EVENTID, &reply,
+		      sizeof(reply), WIL_WMI_CALL_GENERAL_TO_MS);
+	if (rc)
+		return rc;
+
+	if (reply.evt.status != WMI_FW_STATUS_SUCCESS) {
+		wil_err(wil, "Failed to set lo power calibration #%d from otp. status %d\n",
+			index, reply.evt.status);
+		return -EINVAL;
+	}
+
+	wil->lo_calib = index;
+
+	return 0;
+}

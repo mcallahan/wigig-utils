@@ -490,6 +490,44 @@ out:
 
 static DEVICE_ATTR_RW(thermal_throttling);
 
+static ssize_t
+wil_lo_power_calib_sysfs_show(struct device *dev, struct device_attribute *attr,
+			      char *buf)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	ssize_t len;
+
+	if (wil->lo_calib == WIL_LO_CALIB_INVALID_INDEX)
+		len = snprintf(buf, PAGE_SIZE, "unset\n");
+	else
+		len = snprintf(buf, PAGE_SIZE, "%u\n", wil->lo_calib);
+
+	return len;
+}
+
+static ssize_t
+wil_lo_power_calib_sysfs_store(struct device *dev,
+			       struct device_attribute *attr,
+			       const char *buf, size_t count)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	int rc;
+	u8 index;
+
+	if (kstrtou8(buf, 0, &index))
+		return -EINVAL;
+
+	rc = wmi_lo_power_calib_from_otp(wil, index);
+	if (!rc)
+		rc = count;
+
+	return rc;
+}
+
+static DEVICE_ATTR(lo_power_calib, 0644,
+		   wil_lo_power_calib_sysfs_show,
+		   wil_lo_power_calib_sysfs_store);
+
 static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_ftm_txrx_offset.attr,
 	&dev_attr_thermal_throttling.attr,
@@ -497,6 +535,7 @@ static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_fst_link_loss.attr,
 	&dev_attr_qos_weights.attr,
 	&dev_attr_qos_link_prio.attr,
+	&dev_attr_lo_power_calib.attr,
 	NULL
 };
 

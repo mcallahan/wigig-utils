@@ -768,6 +768,7 @@ int wil_priv_init(struct wil6210_priv *wil)
 		rx_ring_overflow_thrsh = WIL6210_RX_HIGH_TRSH_DEFAULT;
 
 	wil->ps_profile =  WMI_PS_PROFILE_TYPE_DEFAULT;
+	wil->lo_calib = WIL_LO_CALIB_INVALID_INDEX;
 
 	wil->wakeup_trigger = WMI_WAKEUP_TRIGGER_UCAST |
 			      WMI_WAKEUP_TRIGGER_BCAST;
@@ -1842,6 +1843,9 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 			wil_err(wil, "failed to restore vifs, rc %d\n", rc);
 			return rc;
 		}
+
+		if (wil->lo_calib != WIL_LO_CALIB_INVALID_INDEX)
+			wmi_lo_power_calib_from_otp(wil, wil->lo_calib);
 
 		if (wil->tt_data_set)
 			wmi_set_tt_cfg(wil, &wil->tt_data);

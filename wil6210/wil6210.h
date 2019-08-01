@@ -424,6 +424,8 @@ struct wil_ring_dma_addr {
 	__le16 addr_high;
 } __packed;
 
+#define WIL_LO_CALIB_INVALID_INDEX	(0xff)
+
 struct fw_map {
 	u32 from; /* linker address - from, inclusive */
 	u32 to;   /* linker address - to, exclusive */
@@ -1072,6 +1074,8 @@ struct wil6210_priv {
 	/* current reg domain configured in kernel */
 	char regdomain[3]; /* alpha2 */
 
+	u8 lo_calib;
+
 	struct notifier_block pm_notify;
 
 	bool suspend_resp_rcvd;
@@ -1561,4 +1565,6 @@ int wil_spec2wmi_ch(u8 spec_ch, u8 *wmi_ch);
 void update_supported_bands(struct wil6210_priv *wil);
 
 void wil_clear_fw_log_addr(struct wil6210_priv *wil);
+int wmi_lo_power_calib_from_otp(struct wil6210_priv *wil, u8 index);
+
 #endif /* __WIL6210_H__ */

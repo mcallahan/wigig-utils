@@ -31,7 +31,7 @@ static struct wiphy_wowlan_support wil_wowlan_support = {
 };
 #endif
 
-static bool country_specific_board_file;
+bool country_specific_board_file;
 module_param(country_specific_board_file, bool, 0444);
 MODULE_PARM_DESC(country_specific_board_file, " switch board file upon regulatory domain change (Default: false)");
 
@@ -55,7 +55,7 @@ MODULE_PARM_DESC(acs_ch_weight, " Channel weight in %. This is channel priority 
 
 #define ACS_DEFAULT_BEST_CHANNEL 2
 
-static bool ignore_reg_hints;
+bool ignore_reg_hints;
 module_param(ignore_reg_hints, bool, 0444);
 MODULE_PARM_DESC(ignore_reg_hints, " Ignore OTA regulatory hints (Default: false)");
 
@@ -3012,8 +3012,10 @@ static const struct cfg80211_ops wil_cfg80211_ops = {
 	.update_ft_ies = wil_cfg80211_update_ft_ies,
 };
 
-static void wil_wiphy_init(struct wiphy *wiphy)
+void wil_wiphy_init(struct wil6210_priv *wil)
 {
+	struct wiphy *wiphy = wil_to_wiphy(wil);
+
 	wiphy->max_scan_ssids = 1;
 	wiphy->max_scan_ie_len = WMI_MAX_IE_LEN;
 	wiphy->max_remain_on_channel_duration = WIL_MAX_ROC_DURATION_MS;
@@ -3152,13 +3154,11 @@ struct wil6210_priv *wil_cfg80211_init(struct device *dev)
 		return ERR_PTR(-ENOMEM);
 
 	set_wiphy_dev(wiphy, dev);
-	wil_wiphy_init(wiphy);
-
 	wil = wiphy_to_wil(wiphy);
 	wil->wiphy = wiphy;
 
 	/* default monitor channel */
-	ch = wiphy->bands[NL80211_BAND_60GHZ]->channels;
+	ch = wil_band_60ghz.channels;
 	cfg80211_chandef_create(&wil->monitor_chandef, ch, NL80211_CHAN_NO_HT);
 
 	return wil;

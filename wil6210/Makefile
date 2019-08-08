@@ -24,6 +24,7 @@ wil6210-y += p2p.o
 wil6210-y += wil_platform_ipq.o
 wil6210-y += ftm.o
 wil6210-y += umac.o
+wil6210-y += config.o
 wil6210-y += slave.o
 
 # for tracing framework to find trace.h

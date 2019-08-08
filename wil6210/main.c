@@ -27,7 +27,7 @@ bool debug_fw; /* = false; */
 module_param(debug_fw, bool, 0444);
 MODULE_PARM_DESC(debug_fw, " do not perform card reset. For FW debug");
 
-static u8 oob_mode;
+u8 oob_mode;
 module_param(oob_mode, byte, 0444);
 MODULE_PARM_DESC(oob_mode,
 		 " enable out of the box (OOB) mode in FW, for diagnostics and certification");
@@ -76,9 +76,9 @@ static const struct kernel_param_ops mtu_max_ops = {
 module_param_cb(mtu_max, &mtu_max_ops, &mtu_max, 0444);
 MODULE_PARM_DESC(mtu_max, " Max MTU value.");
 
-static uint rx_ring_order;
-static uint tx_ring_order	 = WIL_TX_RING_SIZE_ORDER_DEFAULT;
-static uint bcast_ring_order	 = WIL_BCAST_RING_SIZE_ORDER_DEFAULT;
+uint rx_ring_order;
+uint tx_ring_order = WIL_TX_RING_SIZE_ORDER_DEFAULT;
+uint bcast_ring_order = WIL_BCAST_RING_SIZE_ORDER_DEFAULT;
 
 static int ring_order_set(const char *val, const struct kernel_param *kp)
 {
@@ -1892,6 +1892,13 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 
 		if (wil->ps_profile != WMI_PS_PROFILE_TYPE_DEFAULT)
 			wil_ps_update(wil, wil->ps_profile);
+
+		if (wil->ftm_txrx_offset.enabled) {
+			struct wil_ftm_offsets *ftm = &wil->ftm_txrx_offset;
+
+			wmi_set_tof_tx_rx_offset(wil, ftm->tx_offset,
+						 ftm->rx_offset);
+		}
 
 		wil->tx_reserved_entries = ((drop_if_ring_full || ac_queues) ?
 					    WIL_DEFAULT_TX_RESERVED_ENTRIES :

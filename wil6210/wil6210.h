@@ -21,6 +21,9 @@
 #include "umac.h"
 
 extern bool no_fw_recovery;
+extern bool country_specific_board_file;
+extern bool ignore_reg_hints;
+extern u8 oob_mode;
 extern unsigned int mtu_max;
 extern unsigned short rx_ring_overflow_thrsh;
 extern int agg_wsize;
@@ -37,6 +40,10 @@ extern uint headroom_size;
 extern u8 slave_mode;
 extern u8 preemptive_ring_switch;
 extern bool drop_if_ring_full;
+extern int n_msi;
+extern uint rx_ring_order;
+extern uint tx_ring_order;
+extern uint bcast_ring_order;
 
 struct wil6210_priv;
 struct wil6210_vif;
@@ -102,6 +109,7 @@ static inline u32 WIL_GET_BITS(u32 x, int b0, int b1)
 #define WIL_MAX_AMPDU_SIZE_128	(128 * 1024) /* FW/HW limit */
 #define WIL_MAX_AGG_WSIZE_64	(64) /* FW/HW limit */
 #define WIL6210_MAX_STATUS_RINGS	(8)
+#define WIL6210_MAX_HEADROOM_SIZE      (256)
 #define WIL_WMI_CALL_GENERAL_TO_MS 100
 #define WIL_DEFAULT_TX_RESERVED_ENTRIES (16)
 
@@ -951,6 +959,12 @@ struct wil_brd_info {
 	u32 file_max_size;
 };
 
+struct wil_ftm_offsets {
+	u8 enabled;
+	unsigned int tx_offset;
+	unsigned int rx_offset;
+};
+
 struct wil6210_priv {
 	struct pci_dev *pdev;
 	u32 bar_size;
@@ -1075,6 +1089,11 @@ struct wil6210_priv {
 		short omni;
 		short direct;
 	} snr_thresh;
+
+	struct wil_ftm_offsets ftm_txrx_offset;
+
+	u8 qos_weights_set;
+	u8 qos_weights[WMI_QOS_NUM_OF_PRIORITY - 1];
 
 	/* VR profile, VR is disabled on profile 0 */
 	u8 vr_profile;
@@ -1274,6 +1293,7 @@ void wil_memcpy_toio_32(volatile void __iomem *dst, const void *src,
 int wil_mem_access_lock(struct wil6210_priv *wil);
 void wil_mem_access_unlock(struct wil6210_priv *wil);
 
+void wil_wiphy_init(struct wil6210_priv *wil);
 struct wil6210_vif *
 wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 	      unsigned char name_assign_type, enum nl80211_iftype iftype);
@@ -1357,6 +1377,8 @@ int wmi_port_allocate(struct wil6210_priv *wil, u8 mid,
 		      const u8 *mac, enum nl80211_iftype iftype);
 int wmi_port_delete(struct wil6210_priv *wil, u8 mid);
 int wmi_link_stats_cfg(struct wil6210_vif *vif, u32 type, u8 cid, u32 interval);
+int wmi_set_tof_tx_rx_offset(struct wil6210_priv *wil, u32 tx_offset,
+			     u32 rx_offset);
 int wil_addba_rx_request(struct wil6210_priv *wil, u8 mid, u8 cid, u8 tid,
 			 u8 dialog_token, __le16 ba_param_set,
 			 __le16 ba_timeout, __le16 ba_seq_ctrl);
@@ -1420,6 +1442,17 @@ static inline void wil6210_debugfs_remove(struct wil6210_priv *wil) {}
 
 int wil6210_sysfs_init(struct wil6210_priv *wil);
 void wil6210_sysfs_remove(struct wil6210_priv *wil);
+
+int wil_board_file_set(struct wil6210_priv *wil, const char *buf,
+		       size_t count);
+int wil_snr_thresh_set(struct wil6210_priv *wil, const char *buf);
+int wil_ftm_offset_set(struct wil6210_priv *wil, const char *buf);
+int wil_tt_set(struct wil6210_priv *wil, const char *buf,
+	       size_t count);
+int wil_qos_weights_set(struct wil6210_priv *wil, const char *buf,
+			size_t count);
+int wil_led_blink_set(struct wil6210_priv *wil, const char *buf);
+
 int wil_cid_fill_sinfo(struct wil6210_vif *vif, int cid,
 		       struct station_info *sinfo);
 

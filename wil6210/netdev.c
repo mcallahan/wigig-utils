@@ -9,6 +9,7 @@
 #include <linux/rtnetlink.h>
 #include "wil6210.h"
 #include "txrx.h"
+#include "config.h"
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 #include <nss_api_if.h>
 #endif
@@ -510,6 +511,11 @@ void *wil_if_alloc(struct device *dev)
 		dev_err(dev, "wil_priv_init failed\n");
 		goto out_cfg;
 	}
+
+	/* read and parse ini file */
+	wil_parse_config_ini(wil);
+	wil_wiphy_init(wil);
+
 	wil_dbg_misc(wil, "if_alloc\n");
 
 	vif = wil_vif_alloc(wil, "wlan%d", NET_NAME_UNKNOWN,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -13,6 +13,7 @@
 #include <linux/rtnetlink.h>
 #include <linux/pm_runtime.h>
 #include "ipa.h"
+#include "radar.h"
 
 int n_msi = 3;
 module_param(n_msi, int, 0444);
@@ -535,14 +536,27 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto bus_disable;
 	}
 
-	/* in case of WMI-only FW, perform full reset and FW loading */
-	if (test_bit(WMI_FW_CAPABILITY_WMI_ONLY, wil->fw_capabilities)) {
-		wil_dbg_misc(wil, "Loading WMI only FW\n");
+	if (radar_mode) {
+		rc = wil_rdr_init(wil);
+		if (rc)
+			goto bus_disable;
+	}
+
+	/* in case of WMI-only FW or radar mode, perform full reset and FW
+	 * loading
+	 */
+	if (test_bit(WMI_FW_CAPABILITY_WMI_ONLY, wil->fw_capabilities) ||
+	    radar_mode) {
+		if (radar_mode)
+			wil_dbg_misc(wil, "Loading radar FW\n");
+		else
+			wil_dbg_misc(wil, "Loading WMI only FW\n");
+
 		mutex_lock(&wil->mutex);
 		rc = wil_reset(wil, true);
 		mutex_unlock(&wil->mutex);
 		if (rc) {
-			wil_err(wil, "failed to load WMI only FW\n");
+			wil_err(wil, "failed to load WMI only / Radar FW\n");
 			/* ignore the error to allow debugging */
 		}
 	}

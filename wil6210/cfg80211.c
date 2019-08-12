@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/etherdevice.h>
@@ -13,6 +13,7 @@
 #include "ftm.h"
 #include "fw.h"
 #include "ipa.h"
+#include "radar.h"
 
 #define WIL_MAX_ROC_DURATION_MS 5000
 #define WIL_BRD_SUFFIX_CN "CN"
@@ -139,7 +140,7 @@ static struct wil_regd_2_brd_suffix wil_regd_2_brd_suffix_map[] = {
 
 enum wil_nl_60g_cmd_type {
 	NL_60G_CMD_FW_WMI,
-	NL_60G_CMD_DEBUG,
+	NL_60G_CMD_GENERIC,
 	NL_60G_CMD_STATISTICS,
 	NL_60G_CMD_REGISTER,
 };
@@ -204,13 +205,17 @@ struct wil_nl_60g_event {
 	u8 buf[0];
 } __packed;
 
-struct wil_nl_60g_debug { /* NL_60G_CMD_DEBUG */
-	u32 cmd_id; /* wil_nl_60g_debug_cmd */
+struct wil_nl_60g_generic { /* NL_60G_CMD_GENERIC */
+	u32 cmd_id; /* wil_nl_60g_generic_cmd */
 } __packed;
 
-struct wil_nl_60g_debug_force_wmi {
-	struct wil_nl_60g_debug hdr;
+struct wil_nl_60g_generic_force_wmi {
+	struct wil_nl_60g_generic hdr;
 	u32 enable;
+} __packed;
+
+struct wil_nl_60g_generic_radar_alloc_buffer {
+	struct wil_nl_60g_generic hdr;
 } __packed;
 
 static int wil_num_supported_channels(struct wil6210_priv *wil)
@@ -3821,7 +3826,7 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 	struct wil6210_priv *wil = wdev_to_wil(wdev);
 	struct nlattr *tb[QCA_ATTR_WIL_MAX + 1];
 	struct wil_nl_60g_send_receive_wmi *cmd;
-	struct wil_nl_60g_debug_force_wmi debug_force_wmi;
+	struct wil_nl_60g_generic generic_hdr;
 	int rc, len;
 	u32 wil_nl_60g_cmd_type, publish;
 
@@ -3858,23 +3863,26 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 			    publish ? "enabled" : "disabled");
 		wil_nl_60g_fw_state_evt(wil);
 		break;
-	case NL_60G_CMD_DEBUG:
+	case NL_60G_CMD_GENERIC:
 		if (!tb[WIL_ATTR_60G_BUF]) {
 			wil_err(wil, "Invalid nl_60g_cmd spec\n");
 			return -EINVAL;
 		}
 
 		len = nla_len(tb[WIL_ATTR_60G_BUF]);
-		if (len < sizeof(struct wil_nl_60g_debug)) {
+		if (len < sizeof(struct wil_nl_60g_generic)) {
 			wil_err(wil, "cmd buffer too short %d\n", len);
 			return -EINVAL;
 		}
 
-		memcpy(&debug_force_wmi, nla_data(tb[WIL_ATTR_60G_BUF]),
-		       sizeof(struct wil_nl_60g_debug));
+		memcpy(&generic_hdr, nla_data(tb[WIL_ATTR_60G_BUF]),
+		       sizeof(struct wil_nl_60g_generic));
 
-		switch (debug_force_wmi.hdr.cmd_id) {
+		switch (generic_hdr.cmd_id) {
 		case NL_60G_DBG_FORCE_WMI_SEND:
+		{
+			struct wil_nl_60g_generic_force_wmi debug_force_wmi;
+
 			if (len != sizeof(debug_force_wmi)) {
 				wil_err(wil, "cmd buffer wrong len %d\n", len);
 				return -EINVAL;
@@ -3886,7 +3894,42 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 
 			wil_dbg_wmi(wil, "force sending wmi commands %d\n",
 				    wil->force_wmi_send);
+		}
 			break;
+		case NL_60G_GEN_RADAR_ALLOC_BUFFER:
+		{
+			u32 fifo_size;
+			struct sk_buff *skb;
+
+			rc = wil_rdr_alloc_buffer(wil, &fifo_size);
+			if (rc) {
+				wil_err(wil,
+					"Radar buffer allocation failed, rc=%d\n",
+					rc);
+				return rc;
+			}
+
+			wil_dbg_rdr(wil,
+				    "NL_60G_GEN_RADAR_ALLOC_BUFFER handled, buffer allocated successfully\n");
+
+			skb = cfg80211_vendor_cmd_alloc_reply_skb(wiphy, 8);
+			if (!skb) {
+				wil_rdr_free_buffer(wil);
+				return -ENOMEM;
+			}
+
+			if (nla_put_u32(skb,
+					QCA_WLAN_VENDOR_ATTR_RADAR_FIFO_SIZE,
+					fifo_size)) {
+				wil_err(wil,
+					"fail to return fifo size in NL reply\n");
+				wil_rdr_free_buffer(wil);
+				kfree_skb(skb);
+				return -ENOMEM;
+			}
+
+			return cfg80211_vendor_cmd_reply(skb);
+		}
 		case NL_60G_GEN_FW_RESET:
 			if (!test_bit(WMI_FW_CAPABILITY_WMI_ONLY,
 				      wil->fw_capabilities)) {
@@ -3932,7 +3975,7 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 		default:
 			rc = -EINVAL;
 			wil_err(wil, "invalid debug_cmd id %d",
-				debug_force_wmi.hdr.cmd_id);
+				generic_hdr.cmd_id);
 		}
 		break;
 	case NL_60G_CMD_FW_WMI:

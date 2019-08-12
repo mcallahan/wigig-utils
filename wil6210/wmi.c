@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/moduleparam.h>
@@ -14,6 +14,7 @@
 #include "trace.h"
 #include "ftm.h"
 #include "ipa.h"
+#include "radar.h"
 
 /* set the default max assoc sta to max supported by driver */
 uint max_assoc_sta = WIL6210_MAX_CID;
@@ -483,6 +484,18 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_RBUFCAP_CFG_CMD";
 	case WMI_TEMP_SENSE_ALL_CMDID:
 		return "WMI_TEMP_SENSE_ALL_CMDID";
+	case WMI_RADAR_GENERAL_CONFIG_CMDID:
+		return "WMI_RADAR_GENERAL_CONFIG_CMD";
+	case WMI_RADAR_CONFIG_SELECT_CMDID:
+		return "WMI_RADAR_CONFIG_SELECT_CMD";
+	case WMI_RADAR_PARAMS_CONFIG_CMDID:
+		return "WMI_RADAR_PARAMS_CONFIG_CMD";
+	case WMI_RADAR_SET_MODE_CMDID:
+		return "WMI_RADAR_SET_MODE_CMD";
+	case WMI_RADAR_CONTROL_CMDID:
+		return "WMI_RADAR_CONTROL_CMD";
+	case WMI_RADAR_PCI_CONTROL_CMDID:
+		return "WMI_RADAR_PCI_CONTROL_CMD";
 	default:
 		return "Untracked CMD";
 	}
@@ -635,6 +648,18 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_RBUFCAP_CFG_EVENT";
 	case WMI_TEMP_SENSE_ALL_DONE_EVENTID:
 		return "WMI_TEMP_SENSE_ALL_DONE_EVENTID";
+	case WMI_RADAR_GENERAL_CONFIG_EVENTID:
+		return "WMI_RADAR_GENERAL_CONFIG_EVENT";
+	case WMI_RADAR_CONFIG_SELECT_EVENTID:
+		return "WMI_RADAR_CONFIG_SELECT_EVENT";
+	case WMI_RADAR_PARAMS_CONFIG_EVENTID:
+		return "WMI_RADAR_PARAMS_CONFIG_EVENT";
+	case WMI_RADAR_SET_MODE_EVENTID:
+		return "WMI_RADAR_SET_MODE_EVENT";
+	case WMI_RADAR_CONTROL_EVENTID:
+		return "WMI_RADAR_CONTROL_EVENT";
+	case WMI_RADAR_PCI_CONTROL_EVENTID:
+		return "WMI_RADAR_PCI_CONTROL_EVENT";
 	default:
 		return "Untracked EVENT";
 	}
@@ -1631,6 +1656,15 @@ wmi_evt_link_stats(struct wil6210_vif *vif, int id, void *d, int len)
 			     evt->payload, payload_size);
 }
 
+static void
+wmi_evt_radar_config_select(struct wil6210_vif *vif, int id, void *d, int len)
+{
+	struct wil6210_priv *wil = vif_to_wil(vif);
+	struct wmi_radar_config_select_event *evt = d;
+
+	wil_rdr_set_pulse_size(wil, evt);
+}
+
 /**
  * find cid and ringid for the station vif
  *
@@ -1948,6 +1982,7 @@ static const struct {
 	{WMI_LINK_STATS_EVENTID,		wmi_evt_link_stats},
 	{WMI_FT_AUTH_STATUS_EVENTID,		wmi_evt_auth_status},
 	{WMI_FT_REASSOC_STATUS_EVENTID,		wmi_evt_reassoc_status},
+	{WMI_RADAR_CONFIG_SELECT_EVENTID,	wmi_evt_radar_config_select},
 };
 
 /*

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __WIL6210_H__
@@ -42,6 +42,7 @@ extern bool ac_queues;
 extern uint rx_ring_order;
 extern uint tx_ring_order;
 extern uint bcast_ring_order;
+extern bool radar_mode;
 
 struct wil6210_priv;
 struct wil6210_vif;
@@ -60,6 +61,8 @@ union wil_tx_desc;
 #define WIL_BRD_NAME_TALYN "wil6436.brd"
 
 #define WIL_BOARD_FILE_NAME "wil6210.brd" /* board & radio parameters */
+
+#define WIL_PULSE_FILE_NAME "wil6210.pls" /* Pulse file */
 
 #define WIL_DEFAULT_BUS_REQUEST_KBPS 128000 /* ~1Gbps */
 #define WIL_MAX_BUS_REQUEST_KBPS 800000 /* ~6.1Gbps */
@@ -203,6 +206,7 @@ struct RGF_ICR {
 	#define BIT_USER_PREVENT_DEEP_SLEEP	BIT(0)
 	#define BIT_USER_SUPPORT_T_POWER_ON_0	BIT(1)
 	#define BIT_USER_EXT_CLK		BIT(2)
+#define RGF_RDR_SW_HEAD_PTR		(0x880084)
 #define RGF_USER_HW_MACHINE_STATE	(0x8801dc)
 	#define HW_MACHINE_BOOT_DONE	(0x3fffffd)
 #define RGF_USER_USER_CPU_0		(0x8801e0)
@@ -972,6 +976,67 @@ enum wil_fw_state {
 	WIL_FW_STATE_ERROR,
 };
 
+/**
+ * struct wil_rdr_fw_cb - radar - firmware - control block
+ *
+ * @fw_tail: address in FIFO where next CIR will be written
+ * @sw_head: last SW head address known to FW, used for debug. SW head is the
+ * offset in the FIFO of the last CIR that has been read.
+ * @last_wr_pulse_tsf_low: last CIR time stamp, in clock units, used for debug
+ * @last_wr_pulse_count: Number of pulses that have been written by FW to the
+ * FIFO in the last transaction
+ * @last_wr_in_bytes: Same as above, in bytes
+ * @last_wr_pulse_id: last pulse ID, used for debug
+ * @last_wr_burst_id: last burst ID, used for debug
+ * @reserved: This structure must be aligned with FW. The overall size should be
+ * 64 bytes.
+ */
+struct wil_rdr_fw_cb {
+	__le32 fw_tail;
+	__le32 sw_head;
+	__le32 last_wr_pulse_tsf_low;
+	__le32 last_wr_pulse_count;
+	__le32 last_wr_in_bytes;
+	__le32 last_wr_pulse_id;
+	__le32 last_wr_burst_id;
+	__le32 reserved[9];
+} __packed;
+
+/**
+ * struct wil_rdr_ctx - context for radar operations
+ *
+ * @fw_cb: Firmware Control Block. This structure is shared with FW. FW will
+ * update information in it. Must be allocated using dma_alloc_coherent().
+ * @fw_cb_pa: Physical (dma) address of fw_cb
+ * @sw_head: Offset from FIFO base address which points to the last pulse that
+ * has been read by SW.
+ * @fifo: The FIFO where FW writes the radar data. Must be allocated using
+ * dma_alloc_coherent().
+ * @fifo_pa: Physical (dma) address of the FIFO.
+ * @fifo_size: FIFO size in bytes. The FIFO size must be a whole multiplicity of
+ * the pulse size.
+ * @fifo_size_pulses: The FIFO size in pulses.
+ * @pulse_size: pulse size in bytes.
+ * @rcvd_pulses_cntr: Counter of pulses that has been received. Initializes to
+ * zero on radar_alloc_buffer command
+ * @last_burst_id: Last received burst ID
+ * @last_pulse_id: Last received pulse ID
+ */
+struct wil_rdr_ctx {
+	struct wil_rdr_fw_cb *fw_cb;
+	dma_addr_t fw_cb_pa;
+	u32 sw_head;
+	void *fifo;
+	dma_addr_t fifo_pa;
+	u32 fifo_size;
+	u32 fifo_size_pulses;
+	u32 pulse_size;
+	u64 rcvd_pulses_cntr;
+	u32 last_burst_id;
+	u32 last_pulse_id;
+	u32 fifo_debug_pulse_index;
+};
+
 struct wil6210_priv {
 	struct pci_dev *pdev;
 	u32 bar_size;
@@ -1143,6 +1208,9 @@ struct wil6210_priv {
 	u32 tx_reserved_entries; /* Used only in Talyn code-path */
 	u8 multicast_to_unicast;
 	u8 disable_multicast;
+
+	/* Radar */
+	struct wil_rdr_ctx rdr_ctx;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)
@@ -1196,6 +1264,7 @@ void wil_dbg_ratelimited(const struct wil6210_priv *wil, const char *fmt, ...);
 #define wil_dbg_wmi(wil, fmt, arg...) wil_dbg(wil, "DBG[ WMI]" fmt, ##arg)
 #define wil_dbg_misc(wil, fmt, arg...) wil_dbg(wil, "DBG[MISC]" fmt, ##arg)
 #define wil_dbg_pm(wil, fmt, arg...) wil_dbg(wil, "DBG[ PM ]" fmt, ##arg)
+#define wil_dbg_rdr(wil, fmt, arg...) wil_dbg(wil, "DBG[ RDR]" fmt, ##arg)
 #define wil_err(wil, fmt, arg...) __wil_err(wil, "%s: " fmt, __func__, ##arg)
 #define wil_info(wil, fmt, arg...) __wil_info(wil, "%s: " fmt, __func__, ##arg)
 #define wil_err_ratelimited(wil, fmt, arg...) \
@@ -1496,6 +1565,7 @@ int wil_request_firmware(struct wil6210_priv *wil, const char *name,
 			 bool load);
 int wil_request_board(struct wil6210_priv *wil, const char *name);
 bool wil_fw_verify_file_exists(struct wil6210_priv *wil, const char *name);
+int wil_request_pulse(struct wil6210_priv *wil, const char *name);
 
 void wil_pm_runtime_allow(struct wil6210_priv *wil);
 void wil_pm_runtime_forbid(struct wil6210_priv *wil);

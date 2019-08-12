@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: ISC
 /* Copyright (c) 2014,2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/uaccess.h>
 
 #include "wil6210.h"
+#include "radar.h"
 #include "uapi/linux/wil6210_uapi.h"
 
 #define wil_hex_dump_ioctl(prefix_str, buf, len) \
@@ -247,6 +248,9 @@ int wil_ioctl(struct wil6210_priv *wil, void __user *data, int cmd)
 		break;
 	case (SIOCDEVPRIVATE + 1):
 		ret = wil_ioc_android(wil, data);
+		break;
+	case WIL_IOCTL_MEMIO_RDR_GET_DATA:
+		ret = wil_ioc_memio_rdr_get_data(wil, data);
 		break;
 	default:
 		wil_dbg_ioctl(wil, "Unsupported IOCTL 0x%04x\n", cmd);

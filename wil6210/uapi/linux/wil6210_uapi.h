@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 /*
  * Copyright (c) 2014 Qualcomm Atheros, Inc.
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __WIL6210_UAPI_H__
@@ -45,6 +45,23 @@
  */
 #define WIL_IOCTL_MEMIO_BLOCK (SIOCDEVPRIVATE + 3)
 
+/**
+ * Read radar data. Driver will return all available
+ * radar data since last read.
+ *
+ * User code should arrange data in memory like this:
+ *
+ *	void *buf;
+ *	struct wil_memio_rdr_block io = {
+ *		.block = buf,
+ *		.max_size = size of buf,
+ *	};
+ *	struct ifreq ifr = {
+ *		.ifr_data = &io,
+ *	};
+ */
+#define WIL_IOCTL_MEMIO_RDR_GET_DATA (SIOCDEVPRIVATE + 4)
+
 /** operation to perform */
 #define WIL_MMIO_READ 0
 #define WIL_MMIO_WRITE 1
@@ -67,6 +84,11 @@ struct wil_memio_block {
 	uint32_t addr; /* should be 32-bit aligned */
 	uint32_t size; /* should be multiple of 4 */
 	uint64_t __user block; /* block address */
+};
+
+struct wil_memio_rdr_block {
+	uint32_t size; /* should be multiple of 4 */
+	void __user *block; /* block address */
 };
 
 #endif /* __WIL6210_UAPI_H__ */

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/moduleparam.h>
@@ -1846,6 +1846,13 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 			rc = wil_request_firmware(wil, board_file, true);
 		if (rc)
 			goto out;
+
+		if (radar_mode) {
+			wil_info(wil, "Radar mode, loading pulse file....\n");
+			rc = wil_request_pulse(wil, WIL_PULSE_FILE_NAME);
+			if (rc)
+				goto out;
+		}
 
 		wil_pre_fw_config(wil);
 		wil_release_cpu(wil);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -14,6 +14,7 @@
 #include "wmi.h"
 #include "txrx.h"
 #include "pmc.h"
+#include "radar.h"
 
 /* Nasty hack. Better have per device instances */
 static u32 mem_addr;
@@ -1925,6 +1926,78 @@ static const struct file_operations fops_mids = {
 	.llseek		= seq_lseek,
 };
 
+/*--------- radar_fifo ---------*/
+static ssize_t wil_radar_fifo_write(struct file *file,
+				    const char __user *buf,
+				    size_t len, loff_t *ppos)
+{
+	struct seq_file *s = file->private_data;
+	struct wil6210_priv *wil = s->private;
+	u32 val;
+	int rc;
+
+	rc = kstrtoint_from_user(buf, len, 0, &val);
+	if (rc) {
+		wil_err(wil, "Invalid argument\n");
+		return rc;
+	}
+
+	wil->rdr_ctx.fifo_debug_pulse_index = val;
+	wil_dbg_rdr(wil, "Setting debug pulse index to %u\n",
+		    wil->rdr_ctx.fifo_debug_pulse_index);
+
+	return len;
+}
+
+static int
+wil_radar_fifo_show(struct seq_file *s, void *data)
+{
+	struct wil6210_priv *wil = s->private;
+	struct wil_rdr_ctx *ctx = &wil->rdr_ctx;
+	u32 pulse_index = wil->rdr_ctx.fifo_debug_pulse_index;
+	void *p;
+
+	if (!radar_mode) {
+		wil_err(wil, "Radar mode disabled\n");
+		return -EFAULT;
+	}
+	if (!ctx->fifo) {
+		wil_err(wil, "Radar FIFO is not allocated\n");
+		return -EFAULT;
+	}
+	if (!ctx->pulse_size) {
+		wil_err(wil, "Pulse size is unknown\n");
+		return -EFAULT;
+	}
+	if (pulse_index < 0 || pulse_index >= ctx->fifo_size_pulses) {
+		wil_err(wil, "Requested pulse index out of range\n");
+		return -EFAULT;
+	}
+
+	seq_printf(s, "  fwtail = %u\n", le32_to_cpu(ctx->fw_cb->fw_tail));
+	seq_printf(s, "  swhead = %u\n", ctx->sw_head);
+	seq_printf(s, "  pulse index = %u\n  ", pulse_index);
+	p = ctx->fifo + pulse_index * ctx->pulse_size;
+	wil_seq_hexdump(s, p, ctx->pulse_size, "RDR");
+	seq_puts(s, "\n");
+
+	return 0;
+}
+
+static int
+wil_radar_fifo_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, wil_radar_fifo_show, inode->i_private);
+}
+
+static const struct file_operations fops_radar_fifo = {
+	.open  = wil_radar_fifo_seq_open,
+	.release = single_release,
+	.read = seq_read,
+	.write = wil_radar_fifo_write,
+	.llseek = seq_lseek,
+};
+
 static int wil_tx_latency_debugfs_show(struct seq_file *s, void *data)
 __acquires(&p->tid_rx_lock) __releases(&p->tid_rx_lock)
 {
@@ -2615,6 +2688,7 @@ static const struct {
 	{"link_stats",	0644,		&fops_link_stats},
 	{"link_stats_global",	0644,	&fops_link_stats_global},
 	{"rbufcap",	0244,		&fops_rbufcap},
+	{"radar_fifo",	0644,		&fops_radar_fifo},
 };
 
 static void wil6210_debugfs_init_files(struct wil6210_priv *wil,

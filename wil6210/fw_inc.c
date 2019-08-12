@@ -1,18 +1,7 @@
+// SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2014-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 /* Algorithmic part of the firmware download.
@@ -118,6 +107,84 @@ static int wil_fw_verify(struct wil6210_priv *wil, const u8 *data, size_t size)
 			   (ulong)dlen, crc, le32_to_cpu(fh_->crc));
 		return -EINVAL;
 	}
+
+	return (int)dlen;
+}
+
+/**
+ * wil_pulse_verify - verify pulse file validity
+ *
+ * perform various checks for the pulse file header.
+ * records are not validated.
+ *
+ * Return file size or negative error
+ */
+static int wil_pulse_verify(struct wil6210_priv *wil,
+			    const u8 *data,
+			    size_t size)
+{
+	const struct wil_fw_record_head *hdr = (const void *)data;
+	struct wil_fw_record_file_header fh;
+	const struct wil_fw_record_file_header *fh_;
+	u32 crc;
+	u32 dlen;
+
+	if (size % 4) {
+		wil_err_fw(wil, "image size not aligned: %zu\n", size);
+		return -EINVAL;
+	}
+	/* have enough data for the file header? */
+	if (size < sizeof(*hdr) + sizeof(fh)) {
+		wil_err_fw(wil, "file too short: %zu bytes\n", size);
+		return -EINVAL;
+	}
+
+	/* start with the file header? */
+	if (le16_to_cpu(hdr->type) != wil_fw_type_file_header) {
+		wil_err_fw(wil, "no file header\n");
+		return -EINVAL;
+	}
+
+	/* data_len */
+	fh_ = (struct wil_fw_record_file_header *)&hdr[1];
+	dlen = le32_to_cpu(fh_->data_len);
+	if (dlen % 4) {
+		wil_err_fw(wil, "data length not aligned: %lu\n", (ulong)dlen);
+		return -EINVAL;
+	}
+	if (size < dlen) {
+		wil_err_fw(wil, "file truncated at %zu/%lu\n",
+			   size, (ulong)dlen);
+		return -EINVAL;
+	}
+	if (dlen < sizeof(*hdr) + sizeof(fh)) {
+		wil_err_fw(wil, "data length too short: %lu\n", (ulong)dlen);
+		return -EINVAL;
+	}
+
+	/* signature */
+	if (le32_to_cpu(fh_->signature) != WIL_FW_SIGNATURE) {
+		wil_err_fw(wil, "bad header signature: 0x%08x\n",
+			   le32_to_cpu(fh_->signature));
+		return -EINVAL;
+	}
+
+	/* version */
+	if (le32_to_cpu(fh_->version) > WIL_FW_FMT_VERSION) {
+		wil_err_fw(wil, "unsupported header version: %d\n",
+			   le32_to_cpu(fh_->version));
+		return -EINVAL;
+	}
+
+	/* checksum. ~crc32(~0, data, size) when fh.crc set to 0*/
+	fh = *fh_;
+	fh.crc = 0;
+
+	crc = crc32_le(~0, (unsigned char const *)hdr, sizeof(*hdr));
+	crc = crc32_le(crc, (unsigned char const *)&fh, sizeof(fh));
+	crc = crc32_le(crc, (unsigned char const *)&fh_[1],
+		       dlen - sizeof(*hdr) - sizeof(fh));
+	crc = ~crc;
 
 	return (int)dlen;
 }
@@ -689,6 +756,43 @@ out:
 	release_firmware(fw);
 	if (rc)
 		wil_err_fw(wil, "Loading <%s> failed, rc %d\n", name, rc);
+	return rc;
+}
+
+/**
+ * wil_request_pulse - Request pulse file and load it into device memory
+ *
+ * Request pulse image from the file and load firmware to the device
+ *
+ * Return error code
+ */
+int wil_request_pulse(struct wil6210_priv *wil, const char *name)
+{
+	int rc, rc1;
+	const struct firmware *fw;
+	size_t sz;
+	const void *d;
+
+	rc = request_firmware(&fw, name, wil_to_dev(wil));
+	if (rc) {
+		wil_err_fw(wil, "Failed to load firmware %s rc %d\n", name, rc);
+		return rc;
+	}
+	wil_dbg_fw(wil, "Loading <%s>, %zu bytes\n", name, fw->size);
+
+	for (sz = fw->size, d = fw->data; sz; sz -= rc1, d += rc1) {
+		rc1 = wil_pulse_verify(wil, d, sz);
+		if (rc1 < 0) {
+			rc = rc1;
+			goto out;
+		}
+		rc = wil_fw_process(wil, d, rc1, true);
+		if (rc < 0)
+			goto out;
+	}
+
+out:
+	release_firmware(fw);
 	return rc;
 }
 

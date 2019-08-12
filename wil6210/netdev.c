@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/moduleparam.h>
@@ -11,6 +11,7 @@
 #include "txrx.h"
 #include "ipa.h"
 #include "config.h"
+#include "radar.h"
 
 #define WIL6210_TX_QUEUES (4)
 
@@ -58,8 +59,9 @@ static int wil_open(struct net_device *ndev)
 	wil_dbg_misc(wil, "open\n");
 
 	if (debug_fw ||
-	    test_bit(WMI_FW_CAPABILITY_WMI_ONLY, wil->fw_capabilities)) {
-		wil_err(wil, "while in debug_fw or wmi_only mode\n");
+	    test_bit(WMI_FW_CAPABILITY_WMI_ONLY, wil->fw_capabilities) ||
+	    radar_mode) {
+		wil_err(wil, "while in debug_fw, wmi_only or radar mode\n");
 		return -EINVAL;
 	}
 
@@ -484,6 +486,7 @@ void wil_if_free(struct wil6210_priv *wil)
 	free_netdev(ndev);
 
 	wil_cfg80211_deinit(wil);
+	wil_rdr_uninit(wil);
 }
 
 int wil_vif_add(struct wil6210_priv *wil, struct wil6210_vif *vif)

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: ISC
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2020 The Linux Foundation. All rights reserved.
  */
 
 #include <linux/etherdevice.h>
@@ -24,6 +24,15 @@
 /* RX buffer size must be aligned to 4 bytes */
 #define WIL_EDMA_RX_BUF_LEN_DEFAULT (2048)
 #define MAX_INVALID_BUFF_ID_RETRY (3)
+
+static inline uint wil_rx_hdrs_size_edma(void)
+{
+	if (encap_type == WMI_VRING_ENC_TYPE_802_3)
+		return ETH_HLEN;
+
+	/* 802.11 header + snap header + EtherType (2 bytes) */
+	return sizeof(struct ieee80211_hdr) + sizeof(rfc1042_header) + 2;
+}
 
 static void wil_tx_desc_unmap_edma(struct device *dev,
 				   union wil_tx_desc *desc,
@@ -1011,7 +1020,7 @@ again:
 	}
 	stats = &wil->sta[cid].stats;
 
-	if (unlikely(dmalen < ETH_HLEN)) {
+	if (unlikely(skb->len < wil_rx_hdrs_size_edma())) {
 		wil_dbg_txrx(wil, "Short frame, len = %d\n", dmalen);
 		stats->rx_short_frame++;
 		rxdata->skipping = true;

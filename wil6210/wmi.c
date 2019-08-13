@@ -2309,6 +2309,7 @@ int wmi_pcp_start(struct wil6210_vif *vif, int bi, u8 wmi_nettype,
 		.pcp_max_assoc_sta = max_assoc_sta,
 		.hidden_ssid = hidden_ssid,
 		.is_go = is_go,
+		.raw_mode = (encap_type == WMI_VRING_ENC_TYPE_NONE),
 		.ap_sme_offload_mode = disable_ap_sme ?
 				       WMI_AP_SME_OFFLOAD_PARTIAL :
 				       WMI_AP_SME_OFFLOAD_FULL,
@@ -2728,7 +2729,10 @@ int wmi_rx_chain_add(struct wil6210_priv *wil, struct wil_ring *vring)
 			.ring_size = cpu_to_le16(vring->size),
 		},
 		.mid = 0, /* TODO - what is it? */
-		.decap_trans_type = WMI_DECAP_TYPE_802_3,
+		/* enum wmi_cfg_rx_chain_cmd_decap_trans_type has the same
+		 * values of enum wmi_vring_cfg_encap_trans_type
+		 */
+		.decap_trans_type = encap_type,
 		.reorder_type = WMI_RX_SW_REORDER,
 		.host_thrsh = cpu_to_le16(rx_ring_overflow_thrsh),
 	};
@@ -2751,7 +2755,7 @@ int wmi_rx_chain_add(struct wil6210_priv *wil, struct wil_ring *vring)
 		cmd.sniffer_cfg.phy_support =
 			cpu_to_le32((wil->monitor_flags & MONITOR_FLAG_CONTROL)
 				    ? WMI_SNIFFER_CP : WMI_SNIFFER_BOTH_PHYS);
-	} else {
+	} else if (encap_type != WMI_VRING_ENC_TYPE_NONE) {
 		/* Initialize offload (in non-sniffer mode).
 		 * Linux IP stack always calculates IP checksum
 		 * HW always calculate TCP/UDP checksum
@@ -2895,7 +2899,8 @@ int wmi_addba(struct wil6210_priv *wil, u8 mid,
 {
 	u8 amsdu = wil->use_enhanced_dma_hw && wil->use_rx_hw_reordering &&
 		test_bit(WMI_FW_CAPABILITY_AMSDU, wil->fw_capabilities) &&
-		wil->amsdu_en;
+		wil->amsdu_en &&
+		(encap_type == WMI_VRING_ENC_TYPE_802_3);
 	struct wmi_ring_ba_en_cmd cmd = {
 		.ring_id = ringid,
 		.agg_max_wsize = size,
@@ -4056,7 +4061,10 @@ int wil_wmi_cfg_def_rx_offload(struct wil6210_priv *wil,
 	struct wmi_cfg_def_rx_offload_cmd cmd = {
 		.max_msdu_size = cpu_to_le16(wil_mtu2macbuf(WIL_MAX_ETH_MTU)),
 		.max_rx_pl_per_desc = cpu_to_le16(max_rx_pl_per_desc),
-		.decap_trans_type = WMI_DECAP_TYPE_802_3,
+		/* enum wmi_cfg_rx_chain_cmd_decap_trans_type has the same
+		 * values of enum wmi_vring_cfg_encap_trans_type
+		 */
+		.decap_trans_type = encap_type,
 		.l2_802_3_offload_ctrl = 0,
 		.l3_l4_ctrl =
 			(checksum ? 1 << L3_L4_CTRL_TCPIP_CHECKSUM_EN_POS : 0),
@@ -4185,7 +4193,7 @@ int wil_wmi_tx_desc_ring_add(struct wil6210_vif *vif, int ring_id, int cid,
 		.status_ring_id = sring_id,
 		.cid = cid,
 		.tid = tid,
-		.encap_trans_type = WMI_VRING_ENC_TYPE_802_3,
+		.encap_trans_type = encap_type,
 		.max_msdu_size = cpu_to_le16(wil_mtu2macbuf(mtu_max)),
 		.schd_params = {
 			.priority = cpu_to_le16(0),
@@ -4238,7 +4246,7 @@ int wil_wmi_bcast_desc_ring_add(struct wil6210_vif *vif, int ring_id,
 		},
 		.max_msdu_size = cpu_to_le16(wil_mtu2macbuf(mtu_max)),
 		.status_ring_id = sring_id,
-		.encap_trans_type = WMI_VRING_ENC_TYPE_802_3,
+		.encap_trans_type = encap_type,
 	};
 	struct {
 		struct wmi_cmd_hdr hdr;

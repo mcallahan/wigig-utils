@@ -39,6 +39,10 @@ bool disable_ap_sme;
 module_param(disable_ap_sme, bool, 0444);
 MODULE_PARM_DESC(disable_ap_sme, " let user space handle AP mode SME");
 
+u8 encap_type; /* enum wmi_vring_cfg_encap_trans_type */
+module_param(encap_type, byte, 0444);
+MODULE_PARM_DESC(encap_type, " 0 - 802.3, 1 - 802.11 with HW encryption (Not supported), 2 - full raw mode, default - 0");
+
 #ifdef CONFIG_PM
 static struct wiphy_wowlan_support wil_wowlan_support = {
 	.flags = WIPHY_WOWLAN_ANY | WIPHY_WOWLAN_DISCONNECT,
@@ -2221,6 +2225,17 @@ static int _wil_cfg80211_start_ap(struct wiphy *wiphy,
 			return -ENOTSUPP;
 		}
 		set_bit(wil_vif_ft_roam, vif->status);
+	}
+
+	if (encap_type == WMI_VRING_ENC_TYPE_NONE &&
+	    !test_bit(WMI_FW_CAPABILITY_RAW_MODE, wil->fw_capabilities)) {
+		wil_err(wil, "FW does not support raw mode\n");
+		return -ENOTSUPP;
+	}
+
+	if (encap_type == WMI_VRING_ENC_TYPE_NATIVE_WIFI) {
+		wil_err(wil, "Encap type native 802.11 not supported\n");
+		return -ENOTSUPP;
 	}
 
 	mutex_lock(&wil->mutex);

@@ -43,6 +43,7 @@ extern uint rx_ring_order;
 extern uint tx_ring_order;
 extern uint bcast_ring_order;
 extern bool radar_mode;
+extern u8 encap_type;
 
 struct wil6210_priv;
 struct wil6210_vif;

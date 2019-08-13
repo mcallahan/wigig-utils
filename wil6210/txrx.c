@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/etherdevice.h>
@@ -59,6 +59,15 @@ bool drop_if_ring_full;
 static inline uint wil_rx_snaplen(void)
 {
 	return rx_align_2 ? 6 : 0;
+}
+
+static inline uint wil_rx_hdrs_size(void)
+{
+	if (encap_type == WMI_VRING_ENC_TYPE_802_3)
+		return ETH_HLEN + wil_rx_snaplen();
+
+	/* 802.11 header + snap header + EtherType (2 bytes) */
+	return sizeof(struct ieee80211_hdr) + sizeof(rfc1042_header) + 2;
 }
 
 /* wil_ring_wmark_low - low watermark for available descriptor space */
@@ -283,7 +292,7 @@ static int wil_vring_alloc_skb(struct wil6210_priv *wil, struct wil_ring *vring,
 			       u32 i, int headroom)
 {
 	struct device *dev = wil_to_dev(wil);
-	unsigned int sz = wil->rx_buf_len + ETH_HLEN + wil_rx_snaplen();
+	unsigned int sz = wil->rx_buf_len + wil_rx_hdrs_size();
 	struct vring_rx_desc dd, *d = &dd;
 	volatile struct vring_rx_desc *_d = &vring->va[i].rx.legacy;
 	dma_addr_t pa;
@@ -397,7 +406,6 @@ static int wil_rx_get_cid_by_skb(struct wil6210_priv *wil, struct sk_buff *skb)
 	 * find real cid by locating the transmitter (ta) inside sta array
 	 */
 	int cid = wil_rxdesc_cid(d);
-	unsigned int snaplen = wil_rx_snaplen();
 	struct ieee80211_hdr_3addr *hdr;
 	int i;
 	unsigned char *ta;
@@ -408,8 +416,9 @@ static int wil_rx_get_cid_by_skb(struct wil6210_priv *wil, struct sk_buff *skb)
 		return cid;
 
 	ftype = wil_rxdesc_ftype(d) << 2;
-	if (likely(ftype == IEEE80211_FTYPE_DATA)) {
-		if (unlikely(skb->len < ETH_HLEN + snaplen)) {
+	if (likely(ftype == IEEE80211_FTYPE_DATA) &&
+	    encap_type == WMI_VRING_ENC_TYPE_802_3) {
+		if (unlikely(skb->len < wil_rx_hdrs_size())) {
 			wil_err_ratelimited(wil,
 					    "Short data frame, len = %d\n",
 					    skb->len);
@@ -475,7 +484,7 @@ static struct sk_buff *wil_vring_reap_rx(struct wil6210_priv *wil,
 	struct sk_buff *skb;
 	dma_addr_t pa;
 	unsigned int snaplen = wil_rx_snaplen();
-	unsigned int sz = wil->rx_buf_len + ETH_HLEN + snaplen;
+	unsigned int sz = wil->rx_buf_len + wil_rx_hdrs_size();
 	u16 dmalen;
 	u8 ftype;
 	int cid, mid;
@@ -608,7 +617,7 @@ again:
 			stats->rx_csum_err++;
 	}
 
-	if (snaplen) {
+	if (snaplen && encap_type == WMI_VRING_ENC_TYPE_802_3) {
 		/* Packet layout
 		 * +-------+-------+---------+------------+------+
 		 * | SA(6) | DA(6) | SNAP(6) | ETHTYPE(2) | DATA |
@@ -916,6 +925,37 @@ static void wil_rx_handle_eapol(struct wil6210_vif *vif, struct sk_buff *skb)
 }
 
 /*
+ * Pass Rx packet to the netif in raw mode (encap type is none).
+ * Called in softirq context (NAPI poll).
+ */
+static void wil_netif_rx_raw(struct sk_buff *skb, struct net_device *ndev,
+			     struct wil_net_stats *stats, bool mcast)
+{
+	struct wil6210_priv *wil = ndev_to_wil(ndev);
+	unsigned int len = skb->len;
+	int rc;
+
+	skb->dev = ndev;
+	skb->protocol = htons(ETH_P_802_2);
+	rc = netif_rx_ni(skb);
+	wil_dbg_txrx(wil, "Rx complete %d bytes => rc %d\n", len, rc);
+
+	/* statistics */
+	if (unlikely(rc)) {
+		ndev->stats.rx_dropped++;
+		stats->rx_dropped++;
+		wil_dbg_txrx(wil, "Rx drop %d bytes\n", len);
+	} else {
+		ndev->stats.rx_packets++;
+		stats->rx_packets++;
+		ndev->stats.rx_bytes += len;
+		stats->rx_bytes += len;
+		if (mcast)
+			ndev->stats.multicast++;
+	}
+}
+
+/*
  * Pass Rx packet to the netif. Update statistics.
  * Called in softirq context (NAPI poll).
  */
@@ -1025,6 +1065,13 @@ void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev)
 	stats = &wil->sta[cid].stats;
 
 	skb_orphan(skb);
+
+	if (encap_type == WMI_VRING_ENC_TYPE_NONE) {
+		int mcast = is_multicast_ether_addr(wil_skb_get_da(skb));
+
+		wil_netif_rx_raw(skb, ndev, stats, mcast);
+		return;
+	}
 
 	if (security && (wil->txrx_ops.rx_crypto_check(wil, skb) != 0)) {
 		dev_kfree_skb(skb);
@@ -1196,7 +1243,7 @@ static int wil_vring_init_tx(struct wil6210_vif *vif, int id, int size,
 				.ring_size = cpu_to_le16(size),
 			},
 			.ringid = id,
-			.encap_trans_type = WMI_VRING_ENC_TYPE_802_3,
+			.encap_trans_type = encap_type,
 			.mac_ctrl = 0,
 			.to_resolution = 0,
 			.agg_max_wsize = 0,
@@ -1299,7 +1346,7 @@ static int wil_tx_vring_modify(struct wil6210_vif *vif, int ring_id, int cid,
 			},
 			.ringid = ring_id,
 			.cidxtid = mk_cidxtid(cid, tid),
-			.encap_trans_type = WMI_VRING_ENC_TYPE_802_3,
+			.encap_trans_type = encap_type,
 			.mac_ctrl = 0,
 			.to_resolution = 0,
 			.agg_max_wsize = 0,
@@ -1380,7 +1427,7 @@ int wil_vring_init_bcast(struct wil6210_vif *vif, int id, int size)
 				.ring_size = cpu_to_le16(size),
 			},
 			.ringid = id,
-			.encap_trans_type = WMI_VRING_ENC_TYPE_802_3,
+			.encap_trans_type = encap_type,
 		},
 	};
 	struct {
@@ -1718,6 +1765,10 @@ static int wil_tx_desc_offload_setup(struct vring_tx_desc *d,
 	int protocol;
 
 	if (skb->ip_summed != CHECKSUM_PARTIAL)
+		return 0;
+
+	/* HW offloads are supported only in 802.3 mode */
+	if (encap_type != WMI_VRING_ENC_TYPE_802_3)
 		return 0;
 
 	d->dma.b11 = ETH_HLEN; /* MAC header length */

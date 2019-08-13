@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2014-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #include "wil6210.h"
@@ -315,7 +315,8 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 	bool agg_amsdu = wil->use_enhanced_dma_hw &&
 		wil->use_rx_hw_reordering &&
 		test_bit(WMI_FW_CAPABILITY_AMSDU, wil->fw_capabilities) &&
-		wil->amsdu_en && (param_set & BIT(0));
+		wil->amsdu_en && (param_set & BIT(0)) &&
+		(encap_type == WMI_VRING_ENC_TYPE_802_3);
 	int ba_policy = param_set & BIT(1);
 	u16 ssn = seq_ctrl >> 4;
 	struct wil_tid_ampdu_rx *r;

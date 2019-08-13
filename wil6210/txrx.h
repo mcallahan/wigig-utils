@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 /*
  * Copyright (c) 2012-2016 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef WIL6210_TXRX_H
@@ -600,12 +600,34 @@ static inline u8 *wil_skb_get_da(struct sk_buff *skb)
 {
 	struct ethhdr *eth = (void *)skb->data;
 
+	if (encap_type != WMI_VRING_ENC_TYPE_802_3) {
+		struct ieee80211_hdr_3addr *hdr = (void *)skb->data;
+		u16 frame_ctl = le16_to_cpu(hdr->frame_control);
+
+		if (frame_ctl & IEEE80211_FCTL_TODS)
+			/* TODS is 1. da is address 3 */
+			return hdr->addr3;
+		/* TODS is 0. da is address 1 */
+		return hdr->addr1;
+	}
+
 	return eth->h_dest;
 }
 
 static inline u8 *wil_skb_get_sa(struct sk_buff *skb)
 {
 	struct ethhdr *eth = (void *)skb->data;
+
+	if (encap_type != WMI_VRING_ENC_TYPE_802_3) {
+		struct ieee80211_hdr_3addr *hdr = (void *)skb->data;
+		u16 frame_ctl = le16_to_cpu(hdr->frame_control);
+
+		if (frame_ctl & IEEE80211_FCTL_FROMDS)
+			/* FROMDS 1 TODS 0. sa is address 3 */
+			return hdr->addr3;
+		/* FROMDS is 0. sa is address 2 */
+		return hdr->addr2;
+	}
 
 	return eth->h_source;
 }

@@ -411,9 +411,13 @@ wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 	ndev->netdev_ops = &wil_netdev_ops;
 	wil_set_ethtoolops(ndev);
 	ndev->ieee80211_ptr = wdev;
-	ndev->hw_features = NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
-			    NETIF_F_SG | NETIF_F_GRO |
-			    NETIF_F_TSO | NETIF_F_TSO6;
+	/* HW offloads are supported in 802.3 mode only */
+	if (encap_type == WMI_VRING_ENC_TYPE_802_3)
+		ndev->hw_features = NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
+				    NETIF_F_SG | NETIF_F_GRO |
+				    NETIF_F_TSO | NETIF_F_TSO6 |
+				    NETIF_F_RXHASH;
+
 	if (wil_ipa_offload())
 		ndev->hw_features &= ~(NETIF_F_HW_CSUM | NETIF_F_TSO |
 				       NETIF_F_TSO6);

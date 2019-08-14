@@ -14,6 +14,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/stat.h>
+#include <sys/mman.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -128,10 +130,27 @@ static char *read_strings(const char *name, size_t *size, size_t extra_space)
 	return buf;
 }
 
+/* Pre-mapped PCIe device BAR */
+static volatile uint32_t *dev_data_buf;
+
 static void read_log(const char *fname, void *buf, size_t off, size_t size)
 {
-	int f = open(fname, O_RDONLY);
+	int f;
 
+	if (dev_data_buf != NULL) {
+		uint32_t volatile *data;
+
+		data = dev_data_buf + off / 4;
+		/* Manual copy word by word for aligned access */
+		while (size >= 4) {
+			*(uint32_t *)buf = *data++;
+			buf = (char *)buf + 4;
+			size -= 4;
+		}
+		return;
+	}
+
+	f = open(fname, O_RDONLY);
 	if (f < 0)
 		err(1, "Error: memdump file %s", fname);
 	lseek(f, off, SEEK_SET);
@@ -231,7 +250,7 @@ static void do_parse(void)
 		}
 
 		snprintf(module_string, sizeof(module_string),
-			 "%s[%6d/%6d] %9s %s : ",
+			 "%s[%6u/%6u] %9s %s : ",
 			 timestamp, rptr, wptr, modules[evt.hdr.module],
 			 levels[evt.hdr.level]);
 		fmt = str_buf + strring_offset;
@@ -1247,6 +1266,58 @@ static struct RGF_USER_USAGE read_rgf_user_usage(const char *path)
 	return rgf.value;
 }
 
+static void open_pci_device(const char *devsel, size_t *log_offset,
+    size_t *log_buf_entries)
+{
+	union {
+		u32 buffer;
+		struct RGF_USER_USAGE value;
+	} rgf;
+	char fname[sizeof("/sys/bus/pci/devices/xxxx:xx:xx.x/resource0")];
+	struct stat st;
+	uint32_t volatile *data;
+	uint32_t offset;
+	int len, ret, f;
+
+	len = snprintf(fname, sizeof(fname), "/sys/bus/pci/devices/%s/resource0",
+	    devsel);
+	if (len != sizeof(fname) - 1)
+		errx(1, "malformed PCI device selector");
+
+	f = open(fname, O_RDWR);
+	if (f < 0)
+		err(1, "Error: unable to open %s", fname);
+
+	ret = fstat(f, &st);
+	if (ret < 0)
+		err(1, "Error: stat %s", fname);
+
+	data = mmap(NULL, st.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, f, 0);
+	if (data == MAP_FAILED)
+		err(1, "Error: map file %s", fname);
+
+	/* Read log information word at 0x880004, that is offset 0x04 in BAR */
+	rgf.buffer = data[1];
+
+	offset = rgf.value.offset - 0x840000 + (0xa20000 - 0x880000);
+
+	if (log_offset && !log_offset[0])
+		log_offset[0] = offset;
+
+	if (log_buf_entries && !log_buf_entries[0])
+		log_buf_entries[0] =
+			LOG_SIZE_FW_LUT[rgf.value.log_size] / 4;
+
+	dev_data_buf = data;
+
+	/* Reset default log levels, make this configurable? */
+	data = data + offset / 4;
+	data[1] = 0x01010101;
+	data[2] = 0x01000101;
+	data[3] = 0x01010101;
+	data[4] = 0x1f010101;
+}
+
 static void update_timestamp(void)
 {
 	int toffset;
@@ -1269,6 +1340,7 @@ int main(int argc, char *argv[])
 	const char *mod;
 	int c, i;
 	unsigned long x;
+	char *pcidev = 0; /* PCIe device to access */
 	char *peri = 0; /* file to read */
 	char *rgf_path;
 	char *endptr;
@@ -1280,6 +1352,7 @@ int main(int argc, char *argv[])
 	static int help; /* = 0; */
 	size_t extra_space;
 	static struct option long_options[] = {
+		{ "device", required_argument, NULL, 'd' },
 		{ "memdump", required_argument, NULL, 'm' },
 		{ "offset", required_argument, NULL, 'o' },
 		{ "logsize", required_argument, NULL, 'l' },
@@ -1291,8 +1364,11 @@ int main(int argc, char *argv[])
 		{ 0, 0, 0, 0 }
 	};
 	do {
-		c = getopt_long(argc, argv, "m:o:l:s:i:t1h", long_options, &i);
+		c = getopt_long(argc, argv, "d:m:o:l:s:i:t1h", long_options, &i);
 		switch (c) {
+		case 'd': /* pcidev */
+			pcidev = optarg;
+			break;
 		case 'm': /* memdump */
 			peri = optarg;
 			break;
@@ -1337,6 +1413,12 @@ int main(int argc, char *argv[])
 		}
 	} while (c >= 0);
 
+	if (pcidev && peri)
+		errx(1, "memdump and device options cannot be specified together");
+
+	if (pcidev != NULL)
+		open_pci_device(pcidev, &log_offset, &log_buf_entries);
+
 	if (peri && (!log_buf_entries || !log_offset)) {
 		rgf_path = get_rgf_path(peri);
 		rgf_user_usage = read_rgf_user_usage(rgf_path);
@@ -1351,14 +1433,16 @@ int main(int argc, char *argv[])
 	}
 
 	if (help ||
-	    !(peri && strings_bin && log_offset > 0 && log_buf_entries > 0)) {
+	    !((pcidev || peri) && strings_bin && log_offset > 0 && log_buf_entries > 0)) {
 		printf("Usage: %s [OPTION]...\n"
 		       "Extract trace log from firmware\n"
 		       "\n"
 		       "Mandatory arguments to long options are mandatory for short options too.\n"
 		       " The following switches are mandatory:\n"
+		       "  -d, --device=FILE		PCIe device selector to real logs from\n"
 		       "  -m, --memdump=FILE		File to read memory dump from\n"
 		       "  -s, --strings=FILE		File with format strings\n"
+		       "  The device and memdump parameters are mutually exclusive.\n"
 		       " The following switches are optional:\n"
 		       "  -l, --logsize=NUMBER		Log buffer size, entries.\n"
 		       "				Default - read from RGF\n"
@@ -1403,7 +1487,7 @@ int main(int argc, char *argv[])
 		/* overflow; try to parse last wrap */
 		rptr = wptr - log_buf_entries;
 	}
-	printf("  wptr = %d rptr = %d\n", wptr, rptr);
+	printf("  wptr = %u rptr = %u\n", wptr, rptr);
 	for (i = 0; i < 16; i++, mod = next_mod(mod)) {
 		modules[i] = mod;
 		struct module_level_enable *m = &h->module_level_enable[i];

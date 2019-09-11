@@ -7,6 +7,8 @@
 #include <linux/moduleparam.h>
 #include <linux/etherdevice.h>
 #include <linux/rtnetlink.h>
+#include <linux/timer.h>
+#include <linux/version.h>
 #include "wil6210.h"
 #include "txrx.h"
 #include "config.h"
@@ -175,10 +177,21 @@ static u16 wil_select_ac_queue(struct wil6210_priv *wil, struct sk_buff *skb)
 	return ac_qid;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 2, 0)
+static u16 wil_select_queue(struct net_device *ndev,
+			    struct sk_buff *skb,
+			    struct net_device *sb_dev)
+#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 19, 0)
+static u16 wil_select_queue(struct net_device *ndev,
+			    struct sk_buff *skb,
+			    struct net_device *sb_dev,
+			    select_queue_fallback_t fallback)
+#else
 static u16 wil_select_queue(struct net_device *ndev,
 			    struct sk_buff *skb,
 			    void *accel_priv,
 			    select_queue_fallback_t fallback)
+#endif
 {
 	struct wil6210_vif *vif = ndev_to_vif(ndev);
 	struct wil6210_priv *wil = vif_to_wil(vif);
@@ -363,9 +376,17 @@ static void wil_ndev_destructor(struct net_device *ndev)
 	wil_vif_deinit(vif);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void wil_connect_timer_fn(struct timer_list *t)
+#else
 static void wil_connect_timer_fn(ulong x)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	struct wil6210_vif *vif = from_timer(vif, t, connect_timer);
+#else
 	struct wil6210_vif *vif = (void *)x;
+#endif
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	bool q;
 
@@ -379,9 +400,17 @@ static void wil_connect_timer_fn(ulong x)
 	wil_dbg_wmi(wil, "queue_work of disconnect_worker -> %d\n", q);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void wil_scan_timer_fn(struct timer_list *t)
+#else
 static void wil_scan_timer_fn(ulong x)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	struct wil6210_vif *vif = from_timer(vif, t, scan_timer);
+#else
 	struct wil6210_vif *vif = (void *)x;
+#endif
 	struct wil6210_priv *wil = vif_to_wil(vif);
 
 	clear_bit(wil_status_fwready, wil->status);
@@ -389,9 +418,17 @@ static void wil_scan_timer_fn(ulong x)
 	wil_fw_error_recovery(wil);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void wil_p2p_discovery_timer_fn(struct timer_list *t)
+#else
 static void wil_p2p_discovery_timer_fn(ulong x)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	struct wil6210_vif *vif = from_timer(vif, t, p2p.discovery_timer);
+#else
 	struct wil6210_vif *vif = (void *)x;
+#endif
 	struct wil6210_priv *wil = vif_to_wil(vif);
 
 	wil_dbg_misc(wil, "p2p_discovery_timer_fn\n");
@@ -405,10 +442,16 @@ static void wil_vif_init(struct wil6210_vif *vif)
 
 	mutex_init(&vif->probe_client_mutex);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	timer_setup(&vif->connect_timer, wil_connect_timer_fn, 0);
+	timer_setup(&vif->scan_timer, wil_scan_timer_fn, 0);
+	timer_setup(&vif->p2p.discovery_timer, wil_p2p_discovery_timer_fn, 0);
+#else
 	setup_timer(&vif->connect_timer, wil_connect_timer_fn, (ulong)vif);
 	setup_timer(&vif->scan_timer, wil_scan_timer_fn, (ulong)vif);
 	setup_timer(&vif->p2p.discovery_timer, wil_p2p_discovery_timer_fn,
 		    (ulong)vif);
+#endif
 
 	INIT_WORK(&vif->probe_client_worker, wil_probe_client_worker);
 	INIT_WORK(&vif->disconnect_worker, wil_disconnect_worker);

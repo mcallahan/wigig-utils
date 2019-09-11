@@ -6,6 +6,7 @@
 
 #include <linux/etherdevice.h>
 #include <linux/moduleparam.h>
+#include <linux/version.h>
 #include <net/netlink.h>
 #include <net/cfg80211.h>
 #include "wil6210.h"
@@ -370,63 +371,90 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_do_acs
+		.doit = wil_do_acs,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_LOC_GET_CAPA,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_ftm_get_capabilities
+		.doit = wil_ftm_get_capabilities,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FTM_START_SESSION,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_ftm_start_session
+		.doit = wil_ftm_start_session,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FTM_ABORT_SESSION,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_ftm_abort_session
+		.doit = wil_ftm_abort_session,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FTM_CFG_RESPONDER,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_ftm_configure_responder
+		.doit = wil_ftm_configure_responder,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_AOA_MEAS,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_aoa_start_measurement
+		.doit = wil_aoa_start_measurement,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_AOA_ABORT_MEAS,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_aoa_abort_measurement
+		.doit = wil_aoa_abort_measurement,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_DMG_RF_GET_SECTOR_CFG,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_rf_sector_get_cfg
+		.doit = wil_rf_sector_get_cfg,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_DMG_RF_SET_SECTOR_CFG,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_rf_sector_set_cfg
+		.doit = wil_rf_sector_set_cfg,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
@@ -434,7 +462,10 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 			QCA_NL80211_VENDOR_SUBCMD_DMG_RF_GET_SELECTED_SECTOR,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_rf_sector_get_selected
+		.doit = wil_rf_sector_get_selected,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
@@ -442,21 +473,30 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 			QCA_NL80211_VENDOR_SUBCMD_DMG_RF_SET_SELECTED_SECTOR,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_rf_sector_set_selected
+		.doit = wil_rf_sector_set_selected,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_BRP_SET_ANT_LIMIT,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
-		.doit = wil_brp_set_ant_limit
+		.doit = wil_brp_set_ant_limit,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 	{
 		.info.vendor_id = QCA_NL80211_VENDOR_ID,
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_UNSPEC,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
-		.doit = wil_nl_60g_handle_cmd
+		.doit = wil_nl_60g_handle_cmd,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
+		.policy = VENDOR_CMD_RAW_DATA
+#endif
 	},
 };
 
@@ -707,9 +747,14 @@ int wil_cid_fill_sinfo(struct wil6210_vif *vif, int cid,
 			BIT(NL80211_STA_INFO_RX_DROP_MISC) |
 			BIT(NL80211_STA_INFO_TX_FAILED);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+	sinfo->txrate.flags = RATE_INFO_FLAGS_MCS | RATE_INFO_FLAGS_DMG;
+	sinfo->rxrate.flags = RATE_INFO_FLAGS_MCS | RATE_INFO_FLAGS_DMG;
+#else
 	sinfo->txrate.flags = RATE_INFO_FLAGS_MCS | RATE_INFO_FLAGS_60G;
-	sinfo->txrate.mcs = le16_to_cpu(reply.evt.bf_mcs);
 	sinfo->rxrate.flags = RATE_INFO_FLAGS_MCS | RATE_INFO_FLAGS_60G;
+#endif
+	sinfo->txrate.mcs = le16_to_cpu(reply.evt.bf_mcs);
 	sinfo->rxrate.mcs = stats->last_mcs_rx;
 	sinfo->rx_bytes = stats->rx_bytes;
 	sinfo->rx_packets = stats->rx_packets;
@@ -2646,7 +2691,11 @@ static void wil_probe_client_handle(struct wil6210_priv *wil,
 	 */
 	bool alive = (sta->status == wil_sta_connected);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
+	cfg80211_probe_status(ndev, sta->addr, req->cookie, alive, 0, false, GFP_KERNEL);
+#else
 	cfg80211_probe_status(ndev, sta->addr, req->cookie, alive, GFP_KERNEL);
+#endif
 }
 
 static struct list_head *next_probe_client(struct wil6210_vif *vif)

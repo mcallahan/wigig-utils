@@ -15,6 +15,7 @@
  */
 
 #include <linux/etherdevice.h>
+#include <linux/version.h>
 #include <net/netlink.h>
 #include "wil6210.h"
 #include "ftm.h"
@@ -475,9 +476,17 @@ out:
 	mutex_unlock(&vif->ftm.lock);
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+static void wil_aoa_timer_fn(struct timer_list *t)
+#else
 static void wil_aoa_timer_fn(ulong x)
+#endif
 {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	struct wil6210_vif *vif = from_timer(vif, t, ftm.aoa_timer);
+#else
 	struct wil6210_vif *vif = (void *)x;
+#endif
 	struct wil6210_priv *wil = vif_to_wil(vif);
 
 	wil_dbg_misc(wil, "AOA timer\n");
@@ -928,7 +937,11 @@ int wil_aoa_abort_measurement(struct wiphy *wiphy, struct wireless_dev *wdev,
 void wil_ftm_init(struct wil6210_vif *vif)
 {
 	mutex_init(&vif->ftm.lock);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+	timer_setup(&vif->ftm.aoa_timer, wil_aoa_timer_fn, 0);
+#else
 	setup_timer(&vif->ftm.aoa_timer, wil_aoa_timer_fn, (ulong)vif);
+#endif
 	INIT_WORK(&vif->ftm.aoa_timeout_work, wil_aoa_measurement_timeout);
 }
 

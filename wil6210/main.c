@@ -683,6 +683,9 @@ int wil_bcast_init(struct wil6210_vif *vif)
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int ri = vif->bcast_ring, rc;
 
+	if (wil->disable_multicast)
+		return 0;
+
 	if (ri >= 0 && wil->ring_tx[ri].va)
 		return 0;
 
@@ -805,6 +808,7 @@ int wil_priv_init(struct wil6210_priv *wil)
 
 	wil->amsdu_en = 1;
 	wil->fw_state = WIL_FW_STATE_DOWN;
+	wil->disable_multicast = 1; /* in XR mode multicast is disabled */
 
 	return 0;
 

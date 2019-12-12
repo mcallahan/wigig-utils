@@ -132,6 +132,8 @@ struct wil_config_file_entry {
 
 #define WIL_CONFIG_VR_PROFILE_NAME "vr_profile"
 
+#define WIL_CONFIG_DISABLE_MCAST_NAME "disable_multicast"
+
 #define WIL_CONFIG_LED_ID_NAME "led_id"
 #define WIL_CONFIG_LED_ID_MIN 0
 #define WIL_CONFIG_LED_ID_MAX 0xF
@@ -313,6 +315,12 @@ static struct wil_config_entry config_table[] = {
 						 ps_profile),
 			     WIL_CONFIG_PS_PROFILE_MIN,
 			     WIL_CONFIG_PS_PROFILE_MAX),
+	WIL_CONFIG_INI_PARAM(WIL_CONFIG_DISABLE_MCAST_NAME,
+			     wil_ini_param_type_unsigned, NULL,
+			     WIL_CONFIG_VAR_OFFSET(struct wil6210_priv,
+						   disable_multicast),
+			     WIL_CONFIG_BOOL_SIZE, WIL_CONFIG_BOOL_MIN,
+			     WIL_CONFIG_BOOL_MAX),
 };
 
 /**

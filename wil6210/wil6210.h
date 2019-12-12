@@ -1141,6 +1141,7 @@ struct wil6210_priv {
 
 	u32 tx_reserved_entries; /* Used only in Talyn code-path */
 	u8 multicast_to_unicast;
+	u8 disable_multicast;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)

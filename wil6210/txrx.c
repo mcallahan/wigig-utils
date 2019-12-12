@@ -1569,6 +1569,9 @@ static bool wil_check_multicast_to_unicast(struct wil6210_priv *wil,
 	const struct vlan_ethhdr *ethvlan = (void *)skb->data;
 	__be16 ethertype;
 
+	if (wil->disable_multicast)
+		return true;
+
 	if (!wil->multicast_to_unicast)
 		return false;
 

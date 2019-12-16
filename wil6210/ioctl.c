@@ -6,7 +6,7 @@
 #include <linux/uaccess.h>
 
 #include "wil6210.h"
-#include <uapi/linux/wil6210_uapi.h>
+#include "uapi/linux/wil6210_uapi.h"
 
 #define wil_hex_dump_ioctl(prefix_str, buf, len) \
 	print_hex_dump_debug("DBG[IOC ]" prefix_str, \

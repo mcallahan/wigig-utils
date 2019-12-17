@@ -36,7 +36,7 @@ enum qca_attr_loc_reuse {
 	QCA_ATTR_PAD = 13,
 };
 
-static const struct
+const struct
 nla_policy wil_nl80211_loc_policy[QCA_ATTR_LOC_MAX + 1] = {
 	[QCA_ATTR_FTM_SESSION_COOKIE] = { .type = NLA_U64 },
 	[QCA_ATTR_LOC_CAPA] = { .type = NLA_NESTED },

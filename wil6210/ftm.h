@@ -491,6 +491,9 @@ struct wil_ftm_priv {
 	struct work_struct aoa_timeout_work;
 };
 
+extern const struct
+nla_policy wil_nl80211_loc_policy[];
+
 int wil_ftm_get_capabilities(struct wiphy *wiphy, struct wireless_dev *wdev,
 			     const void *data, int data_len);
 int wil_ftm_start_session(struct wiphy *wiphy, struct wireless_dev *wdev,

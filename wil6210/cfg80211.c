@@ -375,6 +375,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_LOC_GET_CAPA,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = VENDOR_CMD_RAW_DATA,
 		.doit = wil_ftm_get_capabilities
 	},
 	{
@@ -382,6 +383,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FTM_START_SESSION,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_nl80211_loc_policy,
 		.doit = wil_ftm_start_session
 	},
 	{
@@ -389,6 +391,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FTM_ABORT_SESSION,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = VENDOR_CMD_RAW_DATA,
 		.doit = wil_ftm_abort_session
 	},
 	{
@@ -396,6 +399,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_FTM_CFG_RESPONDER,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = VENDOR_CMD_RAW_DATA,
 		.doit = wil_ftm_configure_responder
 	},
 	{
@@ -403,6 +407,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_AOA_MEAS,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_nl80211_loc_policy,
 		.doit = wil_aoa_start_measurement
 	},
 	{
@@ -410,6 +415,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_AOA_ABORT_MEAS,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = VENDOR_CMD_RAW_DATA,
 		.doit = wil_aoa_abort_measurement
 	},
 	{
@@ -417,6 +423,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_DMG_RF_GET_SECTOR_CFG,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_rf_sector_policy,
 		.doit = wil_rf_sector_get_cfg
 	},
 	{
@@ -424,6 +431,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_DMG_RF_SET_SECTOR_CFG,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_rf_sector_policy,
 		.doit = wil_rf_sector_set_cfg
 	},
 	{
@@ -432,6 +440,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 			QCA_NL80211_VENDOR_SUBCMD_DMG_RF_GET_SELECTED_SECTOR,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_rf_sector_policy,
 		.doit = wil_rf_sector_get_selected
 	},
 	{
@@ -440,6 +449,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 			QCA_NL80211_VENDOR_SUBCMD_DMG_RF_SET_SELECTED_SECTOR,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_rf_sector_policy,
 		.doit = wil_rf_sector_set_selected
 	},
 	{
@@ -447,6 +457,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_BRP_SET_ANT_LIMIT,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
+		.policy = wil_brp_ant_limit_policy,
 		.doit = wil_brp_set_ant_limit
 	},
 	{
@@ -454,6 +465,7 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.info.subcmd = QCA_NL80211_VENDOR_SUBCMD_UNSPEC,
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
+		.policy = wil_nl_60g_policy,
 		.doit = wil_nl_60g_handle_cmd
 	},
 };

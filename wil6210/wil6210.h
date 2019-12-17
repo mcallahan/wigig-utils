@@ -14,6 +14,7 @@
 #include <linux/timex.h>
 #include <linux/types.h>
 #include <linux/irqreturn.h>
+#include <net/netlink.h>
 #include "wmi.h"
 #include "wil_platform.h"
 #include "ftm.h"

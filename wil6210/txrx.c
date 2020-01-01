@@ -11,6 +11,7 @@
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <net/ipv6.h>
+#include <net/dsfield.h>
 #include <linux/prefetch.h>
 
 #include "wil6210.h"
@@ -1977,7 +1978,8 @@ static inline bool is_special_packet(const struct sk_buff *skb)
 	    (skb->protocol == cpu_to_be16(ETH_P_IP) &&
 	     ip_hdr(skb)->protocol == IPPROTO_ICMP) ||
 	    (skb->protocol == cpu_to_be16(ETH_P_IPV6) &&
-	     ipv6_hdr(skb)->nexthdr == IPPROTO_ICMPV6) ||
+	     (ipv6_hdr(skb)->nexthdr == IPPROTO_ICMPV6 ||
+	     (ipv6_get_dsfield(ipv6_hdr(skb)) >> 2) == 0x30)) || /* DSCP CS6 */
 	    skb->protocol == cpu_to_be16(ETH_P_PAE))
 		return true;
 

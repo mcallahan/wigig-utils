@@ -93,7 +93,7 @@ static int wil_sring_alloc(struct wil6210_priv *wil,
 	/* Status messages are allocated and initialized to 0. This is necessary
 	 * since DR bit should be initialized to 0.
 	 */
-	sring->va = dma_zalloc_coherent(dev, sz, &sring->pa, GFP_KERNEL);
+	sring->va = dma_alloc_coherent(dev, sz, &sring->pa, GFP_KERNEL);
 	if (!sring->va)
 		return -ENOMEM;
 
@@ -410,15 +410,15 @@ static int wil_ring_alloc_desc_ring(struct wil6210_priv *wil,
 		ring->ctx = NULL;
 	}
 
-	ring->va = dma_zalloc_coherent(dev, sz, &ring->pa, GFP_KERNEL);
+	ring->va = dma_alloc_coherent(dev, sz, &ring->pa, GFP_KERNEL);
 	if (!ring->va)
 		goto err_free_ctx;
 
 	if (ring->is_rx) {
 		sz = sizeof(*ring->edma_rx_swtail.va);
 		ring->edma_rx_swtail.va =
-			dma_zalloc_coherent(dev, sz, &ring->edma_rx_swtail.pa,
-					    GFP_KERNEL);
+			dma_alloc_coherent(dev, sz, &ring->edma_rx_swtail.pa,
+					   GFP_KERNEL);
 		if (!ring->edma_rx_swtail.va)
 			goto err_free_va;
 	}
@@ -1535,7 +1535,7 @@ static int __wil_tx_ring_tso_edma(struct wil6210_priv *wil,
 	/* Rest of the descriptors are from the SKB fragments */
 	for (f = 0; f < nr_frags; f++) {
 		skb_frag_t *frag = &skb_shinfo(skb)->frags[f];
-		int len = frag->size;
+		int len = skb_frag_size(frag);
 
 		wil_dbg_txrx(wil, "TSO: frag[%d]: len %u, descs_used %d\n", f,
 			     len, descs_used);

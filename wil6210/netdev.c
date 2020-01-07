@@ -111,8 +111,7 @@ static int wil_do_ioctl(struct net_device *ndev, struct ifreq *ifr, int cmd)
  */
 static u16 wil_select_queue(struct net_device *ndev,
 			    struct sk_buff *skb,
-			    struct net_device *sb_dev,
-			    select_queue_fallback_t fallback)
+			    struct net_device *sb_dev)
 {
 	static const u16 wil_1d_to_queue[8] = {1, 0, 0, 1, 2, 2, 3, 3};
 	struct wil6210_priv *wil = ndev_to_wil(ndev);

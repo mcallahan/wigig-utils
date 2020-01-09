@@ -31,3 +31,5 @@ CFLAGS_trace.o := -I$(src)
 
 MSM_11AD_PATH = drivers/platform/msm/msm_11ad
 CFLAGS_wil_platform.o := -I$(MSM_11AD_PATH)
+
+subdir-ccflags-y += -DCONFIG_WIL6210_WRITE_IOCTL=1

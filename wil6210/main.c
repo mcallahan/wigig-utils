@@ -1417,8 +1417,18 @@ static int wil_get_bl_info(struct wil6210_priv *wil)
 	}
 
 	if (!is_valid_ether_addr(mac)) {
-		wil_err(wil, "BL: Invalid MAC %pM\n", mac);
-		return -EINVAL;
+		if (test_bit(WMI_FW_CAPABILITY_WMI_ONLY,
+			     wil->fw_capabilities)) {
+			u8 dummy_mac[ETH_ALEN] = {
+				0x00, 0xde, 0xad, 0x12, 0x34, 0x56,
+			};
+			wil_err(wil, "Invalid MAC %pM, use dummy %pM\n",
+				mac, dummy_mac);
+			ether_addr_copy(mac, dummy_mac);
+		} else {
+			wil_err(wil, "BL: Invalid MAC %pM\n", mac);
+			return -EINVAL;
+		}
 	}
 
 	ether_addr_copy(ndev->perm_addr, mac);

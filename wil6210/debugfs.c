@@ -2803,6 +2803,7 @@ static const struct dbg_off dbg_wil_off[] = {
 	WIL_FIELD(rx_buff_id_count, 0644,	doff_u32),
 	WIL_FIELD(amsdu_en, 0644,	doff_u8),
 	WIL_FIELD(tx_reserved_entries, 0644, doff_u32),
+	WIL_FIELD(fail_iface_updown_on_fw_assert, 0644, doff_u8),
 	{},
 };
 

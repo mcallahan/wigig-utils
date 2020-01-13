@@ -1160,6 +1160,8 @@ struct wil6210_priv {
 	struct work_struct pci_linkdown_recovery_worker;
 
 	u32 tx_reserved_entries; /* Used only in Talyn code-path */
+
+	u8 fail_iface_updown_on_fw_assert;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)

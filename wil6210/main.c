@@ -1953,6 +1953,14 @@ int __wil_up(struct wil6210_priv *wil)
 
 	WARN_ON(!mutex_is_locked(&wil->mutex));
 
+	if (wil->fail_iface_updown_on_fw_assert &&
+	    (wil->fw_state == WIL_FW_STATE_ERROR ||
+	     wil->fw_state == WIL_FW_STATE_ERROR_BEFORE_READY)) {
+		wil_err(wil,
+			"Failing iface up request as fail_iface_updown_on_fw_assert is set\n");
+		return -EINVAL;
+	}
+
 	down_write(&wil->mem_lock);
 	rc = wil_reset(wil, true);
 	up_write(&wil->mem_lock);
@@ -2029,6 +2037,14 @@ int __wil_down(struct wil6210_priv *wil)
 {
 	int rc;
 	WARN_ON(!mutex_is_locked(&wil->mutex));
+
+	if (wil->fail_iface_updown_on_fw_assert &&
+	    (wil->fw_state == WIL_FW_STATE_ERROR ||
+	     wil->fw_state == WIL_FW_STATE_ERROR_BEFORE_READY)) {
+		wil_err(wil,
+			"Failing iface down request as fail_iface_updown_on_fw_assert is set\n");
+		return -EINVAL;
+	}
 
 	set_bit(wil_status_resetting, wil->status);
 

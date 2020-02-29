@@ -215,19 +215,23 @@ static void logerr(const char *fmt, ...)
 
 static int print_trace(FILE * f, const char *fmt);
 
-static void do_parse(void)
+static void do_parse(int onlylogs)
 {
 	struct log_table_header *h = log_buf;
 	wptr = h->write_ptr;
 
-	if (rptr > wptr) {
-		logerr("rptr overrun; try rewind it back");
-		rptr = wptr > log_buf_entries ? wptr - log_buf_entries : 0;
-	}
-
-	if ((wptr - rptr) >= log_buf_entries) {
-		logerr("wptr overflow; try to parse last wrap");
-		rptr = wptr - log_buf_entries;
+	if (onlylogs) {
+		/* ignore pointers and parse all entries */
+		wptr = log_buf_entries;
+	} else {
+		if (rptr > wptr) {
+			logerr("rptr overrun; try rewind it back");
+			rptr = wptr > log_buf_entries ? wptr - log_buf_entries : 0;
+		}
+		if ((wptr - rptr) >= log_buf_entries) {
+			logerr("wptr overflow; try to parse last wrap");
+			rptr = wptr - log_buf_entries;
+		}
 	}
 
 	for (; rptr < wptr; rptr++) {
@@ -1347,10 +1351,12 @@ int main(int argc, char *argv[])
 	unsigned long poll_interval_ns = 100UL * 1000000UL;
 	struct timespec t1;
 	struct RGF_USER_USAGE rgf_user_usage;
+	static int onlylogs; /* = 0; */
 	static int enable_timestamp; /* = 0; */
 	static int once; /* = 0; */
 	static int help; /* = 0; */
 	size_t extra_space;
+	struct stat st;
 	static struct option long_options[] = {
 		{ "device", required_argument, NULL, 'd' },
 		{ "memdump", required_argument, NULL, 'm' },
@@ -1358,13 +1364,14 @@ int main(int argc, char *argv[])
 		{ "logsize", required_argument, NULL, 'l' },
 		{ "strings", required_argument, NULL, 's' },
 		{ "interval", required_argument, NULL, 'i' },
+		{ "onlylogs", no_argument, &onlylogs, 1 },
 		{ "timestamp", no_argument, &enable_timestamp, 1 },
 		{ "once", no_argument, &once, 1 },
 		{ "help", no_argument, &help, 1 },
 		{ 0, 0, 0, 0 }
 	};
 	do {
-		c = getopt_long(argc, argv, "d:m:o:l:s:i:t1h", long_options, &i);
+		c = getopt_long(argc, argv, "d:m:o:l:s:i:Ot1h", long_options, &i);
 		switch (c) {
 		case 'd': /* pcidev */
 			pcidev = optarg;
@@ -1399,6 +1406,9 @@ int main(int argc, char *argv[])
 				errx(1, "Unable to parse poll interval [%s]",
 				     optarg);
 			break;
+		case 'O': /* onlylogs*/
+			onlylogs = 1;
+			break;
 		case 't': /* timestamp */
 			enable_timestamp = 1;
 			break;
@@ -1419,7 +1429,7 @@ int main(int argc, char *argv[])
 	if (pcidev != NULL)
 		open_pci_device(pcidev, &log_offset, &log_buf_entries);
 
-	if (peri && (!log_buf_entries || !log_offset)) {
+	if (peri && (!log_buf_entries || !log_offset) && !onlylogs) {
 		rgf_path = get_rgf_path(peri);
 		rgf_user_usage = read_rgf_user_usage(rgf_path);
 		free(rgf_path);
@@ -1432,8 +1442,15 @@ int main(int argc, char *argv[])
 				LOG_SIZE_FW_LUT[rgf_user_usage.log_size] / 4;
 	}
 
+	if (onlylogs && peri) {
+		stat(peri, &st);
+		log_buf_entries = (st.st_size - sizeof(struct log_table_header)) / 4;
+		log_offset = 0; /* no offset, file only contains logs */
+		once = 1; /* read all logs in one iteration */
+	}
+
 	if (help ||
-	    !((pcidev || peri) && strings_bin && log_offset > 0 && log_buf_entries > 0)) {
+	    !((pcidev || peri) && strings_bin && (log_offset > 0 || onlylogs) && log_buf_entries > 0)) {
 		printf("Usage: %s [OPTION]...\n"
 		       "Extract trace log from firmware\n"
 		       "\n"
@@ -1450,6 +1467,7 @@ int main(int argc, char *argv[])
 		       "				Default - read from RGF\n"
 		       "  -i, --interval=msec		Polling interval\n"
 		       "				Default - 100 ms\n"
+		       "  -O, --onlylogs		Memdump file consists only of logs, with arbitrary length. No offset/logsize used.\n"
 		       "  -t, --timestamp		Print timestamps\n"
 		       "  -1, --once			Read and parse once and exit, otherwise\n"
 		       "				keep reading infinitely\n",
@@ -1481,11 +1499,15 @@ int main(int argc, char *argv[])
 	if (enable_timestamp)
 		update_timestamp();
 	read_log(peri, log_buf, log_offset, log_size(log_buf_entries));
-	wptr = h->write_ptr;
 
-	if ((wptr - rptr) >= log_buf_entries) {
-		/* overflow; try to parse last wrap */
-		rptr = wptr - log_buf_entries;
+	if (onlylogs) {
+		wptr = log_buf_entries;
+	} else {
+		wptr = h->write_ptr;
+		if ((wptr - rptr) >= log_buf_entries) {
+			/* overflow; try to parse last wrap */
+			rptr = wptr - log_buf_entries;
+		}
 	}
 	printf("  wptr = %u rptr = %u\n", wptr, rptr);
 	for (i = 0; i < 16; i++, mod = next_mod(mod)) {
@@ -1500,7 +1522,7 @@ int main(int argc, char *argv[])
 		       m->disable_new_line ? "n" : " ");
 	}
 	for (;;) {
-		do_parse();
+		do_parse(onlylogs);
 		if (once)
 			break;
 

@@ -426,8 +426,8 @@ enum {
 /* Hardware definitions end */
 #define SPARROW_FW_MAPPING_TABLE_SIZE 10
 #define TALYN_FW_MAPPING_TABLE_SIZE 13
-#define TALYN_MB_FW_MAPPING_TABLE_SIZE 19
-#define MAX_FW_MAPPING_TABLE_SIZE 19
+#define TALYN_MB_FW_MAPPING_TABLE_SIZE 20
+#define MAX_FW_MAPPING_TABLE_SIZE 20
 
 /* Common representation of physical address in wil ring */
 struct wil_ring_dma_addr {

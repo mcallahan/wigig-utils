@@ -33,7 +33,7 @@ int wil_ioblock(char *ifname, uint32_t addr, uint32_t size, uint32_t op,
 		.op = op,
 		.addr = addr,
 		.size = size,
-		.block = buf,
+		.block = (uint64_t)buf,
 	};
 	struct ifreq ifr = {
 		.ifr_data = &io,
@@ -47,7 +47,7 @@ int wil_ioblock(char *ifname, uint32_t addr, uint32_t size, uint32_t op,
 	}
 
 	/* set up interface name for request */
-	strlcpy(ifr.ifr_name, ifname, IFNAMSIZ);
+	strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
 	ifr.ifr_name[IFNAMSIZ - 1] = 0;
 
 	/* go */

@@ -52,7 +52,7 @@ static int wil_io(char *ifname, uint32_t addr, uint32_t *val, uint32_t op)
 	}
 
 	/* set up interface name for request */
-	strlcpy(ifr.ifr_name, ifname, IFNAMSIZ);
+	strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
 	ifr.ifr_name[IFNAMSIZ - 1] = 0;
 
 	/* go */
@@ -75,9 +75,9 @@ int main(int argc, char *argv[])
 	char *endptr;
 	static struct option long_options[] = {
 		{"address", required_argument, NULL, 'a'},
-		{"linker", no_argument, &addr_mode, wil_mmio_addr_linker},
-		{"ahb", no_argument, &addr_mode, wil_mmio_addr_ahb},
-		{"bar", no_argument, &addr_mode, wil_mmio_addr_bar},
+		{"linker", no_argument, &addr_mode, WIL_MMIO_ADDR_LINKER},
+		{"ahb", no_argument, &addr_mode, WIL_MMIO_ADDR_AHB},
+		{"bar", no_argument, &addr_mode, WIL_MMIO_ADDR_BAR},
 		{"read", no_argument, &mod_wr, 0},
 		{"write", required_argument, NULL, 'w'},
 		{"ifc", required_argument, NULL, 'i'},

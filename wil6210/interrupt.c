@@ -39,7 +39,9 @@
 #define WIL6210_IMC_MISC_NO_HALP	(ISR_MISC_FW_READY | \
 					 ISR_MISC_MBOX_EVT | \
 					 ISR_MISC_FW_ERROR | \
-					 ISR_MISC_RADAR)
+					 ISR_MISC_RADAR    | \
+					 ISR_MISC_XR1      | \
+					 ISR_MISC_XR2)
 #define WIL6210_IMC_MISC		(WIL6210_IMC_MISC_NO_HALP | \
 					 BIT_DMA_EP_MISC_ICR_HALP)
 #define WIL6210_IRQ_PSEUDO_MASK (u32)(~(BIT_DMA_PSEUDO_CAUSE_RX | \
@@ -599,6 +601,16 @@ irqreturn_t wil6210_irq_misc(int irq, void *cookie)
 		wil_dbg_irq(wil, "irq_misc: RADAR\n");
 		wil_rdr_isr(wil);
 		isr &= ~ISR_MISC_RADAR;
+	}
+
+	if (isr & ISR_MISC_XR1) {
+		wil_dbg_irq(wil, "irq_misc: ISR_MISC_XR1\n");
+		isr &= ~ISR_MISC_XR1;
+	}
+
+	if (isr & ISR_MISC_XR2) {
+		wil_dbg_irq(wil, "irq_misc: ISR_MISC_XR2\n");
+		isr &= ~ISR_MISC_XR2;
 	}
 
 	wil->isr_misc = isr;

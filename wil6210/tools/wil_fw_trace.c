@@ -1270,8 +1270,14 @@ static struct RGF_USER_USAGE read_rgf_user_usage(const char *path)
 	return rgf.value;
 }
 
+#define BAR_HOST_ADDR            0x880000
+#define FW_PERI_LINKER_ADDR      0x840000
+#define FW_PERI_HOST_ADDR        0xa20000
+#define UC_DATA_LINKER_ADDR      0x800000
+#define UC_DATA_HOST_ADDR        0xa78000
+
 static void open_pci_device(const char *devsel, size_t *log_offset,
-    size_t *log_buf_entries)
+    size_t *log_buf_entries, int ucode)
 {
 	union {
 		u32 buffer;
@@ -1300,10 +1306,20 @@ static void open_pci_device(const char *devsel, size_t *log_offset,
 	if (data == MAP_FAILED)
 		err(1, "Error: map file %s", fname);
 
-	/* Read log information word at 0x880004, that is offset 0x04 in BAR */
-	rgf.buffer = data[1];
-
-	offset = rgf.value.offset - 0x840000 + (0xa20000 - 0x880000);
+	/* FW log information word is at 0x880004, that is offset 0x04 in BAR
+	 * ucode log information is next word at 0x880008, offset 0x08 in BAR
+	 *
+	 * offset = rgf.value.offset - linker addr + (pci/host addr - bar addr)
+	 */
+	if (ucode == 0) {
+		rgf.buffer = data[1];
+		offset = rgf.value.offset - FW_PERI_LINKER_ADDR +
+			(FW_PERI_HOST_ADDR - BAR_HOST_ADDR);
+	} else {
+		rgf.buffer = data[2];
+		offset = rgf.value.offset - UC_DATA_LINKER_ADDR +
+			(UC_DATA_HOST_ADDR - BAR_HOST_ADDR);
+	}
 
 	if (log_offset && !log_offset[0])
 		log_offset[0] = offset;
@@ -1351,6 +1367,7 @@ int main(int argc, char *argv[])
 	unsigned long poll_interval_ns = 100UL * 1000000UL;
 	struct timespec t1;
 	struct RGF_USER_USAGE rgf_user_usage;
+	static int ucode; /* = 0; */
 	static int onlylogs; /* = 0; */
 	static int enable_timestamp; /* = 0; */
 	static int once; /* = 0; */
@@ -1364,6 +1381,7 @@ int main(int argc, char *argv[])
 		{ "logsize", required_argument, NULL, 'l' },
 		{ "strings", required_argument, NULL, 's' },
 		{ "interval", required_argument, NULL, 'i' },
+		{ "ucode", no_argument, &ucode, 1 },
 		{ "onlylogs", no_argument, &onlylogs, 1 },
 		{ "timestamp", no_argument, &enable_timestamp, 1 },
 		{ "once", no_argument, &once, 1 },
@@ -1371,7 +1389,7 @@ int main(int argc, char *argv[])
 		{ 0, 0, 0, 0 }
 	};
 	do {
-		c = getopt_long(argc, argv, "d:m:o:l:s:i:Ot1h", long_options, &i);
+		c = getopt_long(argc, argv, "d:m:o:l:s:i:uOt1h", long_options, &i);
 		switch (c) {
 		case 'd': /* pcidev */
 			pcidev = optarg;
@@ -1406,6 +1424,9 @@ int main(int argc, char *argv[])
 				errx(1, "Unable to parse poll interval [%s]",
 				     optarg);
 			break;
+		case 'u': /* ucode */
+			ucode = 1;
+			break;
 		case 'O': /* onlylogs*/
 			onlylogs = 1;
 			break;
@@ -1427,7 +1448,7 @@ int main(int argc, char *argv[])
 		errx(1, "memdump and device options cannot be specified together");
 
 	if (pcidev != NULL)
-		open_pci_device(pcidev, &log_offset, &log_buf_entries);
+		open_pci_device(pcidev, &log_offset, &log_buf_entries, ucode);
 
 	if (peri && (!log_buf_entries || !log_offset) && !onlylogs) {
 		rgf_path = get_rgf_path(peri);
@@ -1449,14 +1470,14 @@ int main(int argc, char *argv[])
 		once = 1; /* read all logs in one iteration */
 	}
 
-	if (help ||
+	if (help || (ucode && pcidev == NULL) ||
 	    !((pcidev || peri) && strings_bin && (log_offset > 0 || onlylogs) && log_buf_entries > 0)) {
 		printf("Usage: %s [OPTION]...\n"
 		       "Extract trace log from firmware\n"
 		       "\n"
 		       "Mandatory arguments to long options are mandatory for short options too.\n"
 		       " The following switches are mandatory:\n"
-		       "  -d, --device=FILE		PCIe device selector to real logs from\n"
+		       "  -d, --device=FILE		PCIe device selector to read logs from\n"
 		       "  -m, --memdump=FILE		File to read memory dump from\n"
 		       "  -s, --strings=FILE		File with format strings\n"
 		       "  The device and memdump parameters are mutually exclusive.\n"
@@ -1467,7 +1488,9 @@ int main(int argc, char *argv[])
 		       "				Default - read from RGF\n"
 		       "  -i, --interval=msec		Polling interval\n"
 		       "				Default - 100 ms\n"
-		       "  -O, --onlylogs		Memdump file consists only of logs, with arbitrary length. No offset/logsize used.\n"
+		       "  -u, --ucode			Read microcode (ucode) logs instead of firmware logs.\n"
+		       "				Must read from device. Check to use appropriate strings file.\n"
+		       "  -O, --onlylogs		Memdump file consists only of FW logs, with arbitrary length. No offset/logsize used.\n"
 		       "  -t, --timestamp		Print timestamps\n"
 		       "  -1, --once			Read and parse once and exit, otherwise\n"
 		       "				keep reading infinitely\n",

@@ -1277,7 +1277,7 @@ static struct RGF_USER_USAGE read_rgf_user_usage(const char *path)
 #define UC_DATA_HOST_ADDR        0xa78000
 
 static void open_pci_device(const char *devsel, size_t *log_offset,
-    size_t *log_buf_entries, int ucode)
+    size_t *log_buf_entries, int ucode, int verbosity)
 {
 	union {
 		u32 buffer;
@@ -1286,7 +1286,7 @@ static void open_pci_device(const char *devsel, size_t *log_offset,
 	char fname[sizeof("/sys/bus/pci/devices/xxxx:xx:xx.x/resource0")];
 	struct stat st;
 	uint32_t volatile *data;
-	uint32_t offset;
+	uint32_t offset, x;
 	int len, ret, f;
 
 	len = snprintf(fname, sizeof(fname), "/sys/bus/pci/devices/%s/resource0",
@@ -1330,12 +1330,23 @@ static void open_pci_device(const char *devsel, size_t *log_offset,
 
 	dev_data_buf = data;
 
-	/* Reset default log levels, make this configurable? */
+	/* set log levels */
 	data = data + offset / 4;
-	data[1] = 0x01010101;
-	data[2] = 0x01000101;
-	data[3] = 0x01010101;
-	data[4] = 0x1f010101;
+	if (verbosity >= 0) {
+		/* Set bitmask, see struct module_level_enable */
+		x = ~(0xffffffff << (verbosity + 1));
+		x = x | x << 0x8 | x << 0x10 | x << 0x18;
+		data[1] = x;
+		data[2] = x;
+		data[3] = x;
+		data[4] = 0x10000000 | x;
+	} else {
+		/* Reset default log levels */
+		data[1] = 0x01010101;
+		data[2] = 0x01000101;
+		data[3] = 0x01010101;
+		data[4] = 0x1f010101;
+	}
 }
 
 static void update_timestamp(void)
@@ -1372,6 +1383,7 @@ int main(int argc, char *argv[])
 	static int enable_timestamp; /* = 0; */
 	static int once; /* = 0; */
 	static int help; /* = 0; */
+	static int verbosity = -1;
 	size_t extra_space;
 	struct stat st;
 	static struct option long_options[] = {
@@ -1381,6 +1393,7 @@ int main(int argc, char *argv[])
 		{ "logsize", required_argument, NULL, 'l' },
 		{ "strings", required_argument, NULL, 's' },
 		{ "interval", required_argument, NULL, 'i' },
+		{ "verbosity", required_argument, NULL, 'v' },
 		{ "ucode", no_argument, &ucode, 1 },
 		{ "onlylogs", no_argument, &onlylogs, 1 },
 		{ "timestamp", no_argument, &enable_timestamp, 1 },
@@ -1389,7 +1402,7 @@ int main(int argc, char *argv[])
 		{ 0, 0, 0, 0 }
 	};
 	do {
-		c = getopt_long(argc, argv, "d:m:o:l:s:i:uOt1h", long_options, &i);
+		c = getopt_long(argc, argv, "d:m:o:l:s:i:v:uOt1h", long_options, &i);
 		switch (c) {
 		case 'd': /* pcidev */
 			pcidev = optarg;
@@ -1424,6 +1437,17 @@ int main(int argc, char *argv[])
 				errx(1, "Unable to parse poll interval [%s]",
 				     optarg);
 			break;
+		case 'v': /* verbosity */
+			if (strcmp(optarg, "ERROR") == 0) {
+				verbosity = 0;
+			} else if (strcmp(optarg, "WARN") == 0) {
+				verbosity = 1;
+			} else if (strcmp(optarg, "INFO") == 0) {
+				verbosity = 2;
+			} else if (strcmp(optarg, "VERBOSE") == 0) {
+				verbosity = 3;
+			}
+			break;
 		case 'u': /* ucode */
 			ucode = 1;
 			break;
@@ -1448,7 +1472,8 @@ int main(int argc, char *argv[])
 		errx(1, "memdump and device options cannot be specified together");
 
 	if (pcidev != NULL)
-		open_pci_device(pcidev, &log_offset, &log_buf_entries, ucode);
+		open_pci_device(
+			pcidev, &log_offset, &log_buf_entries, ucode, verbosity);
 
 	if (peri && (!log_buf_entries || !log_offset) && !onlylogs) {
 		rgf_path = get_rgf_path(peri);
@@ -1488,6 +1513,10 @@ int main(int argc, char *argv[])
 		       "				Default - read from RGF\n"
 		       "  -i, --interval=msec		Polling interval\n"
 		       "				Default - 100 ms\n"
+		       "  -v --verbosity={ERROR|WARN|INFO|VERBOSE}\n"
+		       "				Configure log verbosity level for all modules when reading from device.\n"
+		       "				Levels lower than the one specified will be enabled as well.\n"
+		       "				Default - ERROR for all FW log modules except CALIBS (none) and FW_3P (VERBOSE)\n"
 		       "  -u, --ucode			Read microcode (ucode) logs instead of firmware logs.\n"
 		       "				Must read from device. Check to use appropriate strings file.\n"
 		       "  -O, --onlylogs		Memdump file consists only of FW logs, with arbitrary length. No offset/logsize used.\n"

@@ -145,8 +145,10 @@ const struct fw_map talyn_fw_mapping[] = {
 	{0x8a0000, 0x8a1000, 0x8a0000, "otp", true, false},
 	/* DMA EXT RGF 64k */
 	{0x8b0000, 0x8c0000, 0x8b0000, "dma_ext_rgf", true, true},
-	/* upper area 1536k */
-	{0x900000, 0xa80000, 0x900000, "upper", true, true},
+	/* upper1 area 768k */
+	{0x900000, 0x9c0000, 0x900000, "upper1", true, true},
+	/* upper2 area 512k */
+	{0xa00000, 0xa80000, 0xa00000, "upper2", true, true},
 	/* UCODE areas - accessible by debugfs blobs but not by
 	 * wmi_addr_remap. UCODE areas MUST be added AFTER FW areas!
 	 */

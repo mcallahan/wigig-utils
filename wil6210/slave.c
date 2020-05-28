@@ -175,7 +175,7 @@ static void wil_slave_get_mac(void *dev, u8 *mac)
 	struct wil_slave_entry *slave = dev;
 	struct wil6210_priv *wil = slave->wil;
 
-	ether_addr_copy(mac, wil->main_ndev->perm_addr);
+	ether_addr_copy(mac, wil->main_ndev->dev_addr);
 }
 
 static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb)

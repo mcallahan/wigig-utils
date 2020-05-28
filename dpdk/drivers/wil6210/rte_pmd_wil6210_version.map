@@ -1,0 +1,5 @@
+DPDK_2.0 {
+	rte_wigig_get_ops;
+
+	local: *;
+};

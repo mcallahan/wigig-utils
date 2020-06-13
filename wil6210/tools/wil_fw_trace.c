@@ -16,6 +16,11 @@
 
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/ioctl.h>
+#include <linux/if.h>
+#include <linux/sockios.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <fcntl.h>
@@ -32,6 +37,10 @@
 #include <err.h>
 #include <time.h>
 #include <stdarg.h>
+#include <libgen.h>
+#include <dirent.h>
+
+#include "../uapi/linux/wil6210_uapi.h"
 
 /*
  * Dumps firmware trace.
@@ -93,6 +102,53 @@ struct log_table_header {
 	union log_event evt[0];
 } __attribute__((packed));
 
+static char *strings_bin;
+enum { str_mask = 0xFFFFF };
+
+/* string used in place of corrupted string parameter */
+static const char *CORRUPTED_PARAM_MARK = "ZZZZ";
+
+#define RGF_USER_USAGE_1         0x880004
+#define RGF_USER_USAGE_2         0x880008
+
+#define BAR_HOST_ADDR            0x880000
+#define FW_PERI_LINKER_ADDR      0x840000
+#define FW_PERI_HOST_ADDR        0xa20000
+#define UC_DATA_LINKER_ADDR      0x800000
+#define UC_DATA_HOST_ADDR        0xa78000
+
+/* Pre-mapped PCIe device BAR */
+static volatile uint32_t *dev_data_buf;
+
+static int restart_log;
+static int ifc_ctl_sock = -1;
+
+/* log parameters */
+static size_t log_offset; /* =0; offset of log buf in the file */
+static size_t log_buf_entries; /* =0 entries in the log buf */
+
+static void *log_buf; /* memory allocated for the log buf */
+static union log_event evt;
+static char timestamp[25] = { '\0' };
+static char module_string[128] = { '\0' };
+static uint prev_module;
+static char trailing_newline = 1;
+static char *str_buf;
+static size_t str_sz;
+static u32 rptr; /* = 0; */
+static u32 rptr_param_last; /* = 0; */
+static u32 wptr; /* = 0; */
+static const char *const levels[] = {
+	"E",
+	"W",
+	"I",
+	"V",
+};
+
+#define MAX_PARAMS (7)
+
+static const char *modules[16];
+
 static size_t read_all(int f, char *buf, size_t n)
 {
 	size_t actual = 0, r;
@@ -130,12 +186,50 @@ static char *read_strings(const char *name, size_t *size, size_t extra_space)
 	return buf;
 }
 
-/* Pre-mapped PCIe device BAR */
-static volatile uint32_t *dev_data_buf;
-
-static void read_log(const char *fname, void *buf, size_t off, size_t size)
+static int wil_ioblock(char *ifname, uint32_t addr, uint32_t size, uint32_t op,
+		void *buf)
 {
-	int f;
+	int ret;
+	struct wil_memio_block io = {
+		.op = op,
+		.addr = addr,
+		.size = size,
+		.block = buf,
+	};
+	struct ifreq ifr = {
+		.ifr_data = &io,
+	};
+
+	/* init socket */
+	if (ifc_ctl_sock < 0)
+		ifc_ctl_sock = socket(AF_INET, SOCK_DGRAM, 0);
+	if (ifc_ctl_sock < 0) {
+		perror("socket");
+		return ifc_ctl_sock;
+	}
+
+	/* set up interface name for request */
+	strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
+	ifr.ifr_name[IFNAMSIZ - 1] = 0;
+
+	/* go */
+	ret = ioctl(ifc_ctl_sock, WIL_IOCTL_MEMIO_BLOCK, &ifr);
+	if (ret < 0)
+		perror("ioctl");
+
+	return ret;
+}
+
+static inline size_t log_size(size_t entry_num)
+{
+	return sizeof(struct log_table_header) + entry_num * 4;
+}
+
+static int read_log(const char *fname, char *ifname, void *buf, size_t off,
+		    size_t size)
+{
+	int f, ret;
+	uint32_t addr;
 
 	if (dev_data_buf != NULL) {
 		uint32_t volatile *data;
@@ -147,7 +241,19 @@ static void read_log(const char *fname, void *buf, size_t off, size_t size)
 			buf = (char *)buf + 4;
 			size -= 4;
 		}
-		return;
+		return 0;
+	}
+
+	if (ifname != NULL) {
+		if (restart_log)
+			return -1;
+
+		ret = wil_ioblock(ifname, log_offset + BAR_HOST_ADDR,
+				  log_size(log_buf_entries),
+				  wil_mmio_read, buf);
+		if (ret)
+			restart_log = 1;
+		return ret;
 	}
 
 	f = open(fname, O_RDONLY);
@@ -160,43 +266,7 @@ static void read_log(const char *fname, void *buf, size_t off, size_t size)
 	if (r != size)
 		errx(1, "Error: from %s read %zd bytes out of %zd", fname, r,
 		     size);
-}
-
-static char *strings_bin;
-enum { str_mask = 0xFFFFF };
-
-/* string used in place of corrupted string parameter */
-static const char *CORRUPTED_PARAM_MARK = "ZZZZ";
-
-/* log parameters */
-static size_t log_offset; /* =0; offset of log buf in the file */
-static size_t log_buf_entries; /* =0 entries in the log buf */
-
-static void *log_buf; /* memory allocated for the log buf */
-static union log_event evt;
-static char timestamp[25] = { '\0' };
-static char module_string[128] = { '\0' };
-static uint prev_module;
-static char trailing_newline = 1;
-static char *str_buf;
-static size_t str_sz;
-static u32 rptr; /* = 0; */
-static u32 rptr_param_last; /* = 0; */
-static u32 wptr; /* = 0; */
-static const char *const levels[] = {
-	"E",
-	"W",
-	"I",
-	"V",
-};
-
-#define MAX_PARAMS (7)
-
-static const char *modules[16];
-
-static inline size_t log_size(size_t entry_num)
-{
-	return sizeof(struct log_table_header) + entry_num * 4;
+	return 0;
 }
 
 static void logerr(const char *fmt, ...)
@@ -218,6 +288,10 @@ static int print_trace(FILE * f, const char *fmt);
 static void do_parse(int onlylogs)
 {
 	struct log_table_header *h = log_buf;
+
+	if (restart_log)
+		return;
+
 	wptr = h->write_ptr;
 
 	if (onlylogs) {
@@ -1270,11 +1344,67 @@ static struct RGF_USER_USAGE read_rgf_user_usage(const char *path)
 	return rgf.value;
 }
 
-#define BAR_HOST_ADDR            0x880000
-#define FW_PERI_LINKER_ADDR      0x840000
-#define FW_PERI_HOST_ADDR        0xa20000
-#define UC_DATA_LINKER_ADDR      0x800000
-#define UC_DATA_HOST_ADDR        0xa78000
+#define KERNEL_DRIVER_NAME "wil6210"
+
+/*
+ * Check if this pci device is using the wil6210 kernel driver. If it is,
+ * then find the interface name so we can read logs via ioctls instead of
+ * from the sysfs pci resource.
+ *
+ * Return a pointer to malloced interface name if found, otherwise NULL.
+ */
+static char *find_ifname_by_driver(char *pcidev) {
+	int len, ret;
+	struct stat sb;
+	char driver_fname[sizeof("/sys/bus/pci/devices/xxxx:xx:xx.x/driver")];
+	char netif_fname[sizeof("/sys/bus/pci/devices/xxxx:xx:xx.x/net")];
+	char link_name[255];
+	char *ifname;
+	DIR *dirp;
+	struct dirent *dp;
+
+	/* check if this device is using the kernel driver */
+	len = snprintf(
+		driver_fname,
+		sizeof(driver_fname),
+		"/sys/bus/pci/devices/%s/driver",
+		pcidev);
+	if (len != sizeof(driver_fname) - 1)
+		errx(1, "malformed PCI device selector");
+
+	ret = readlink(driver_fname, link_name, sizeof(link_name) - 1);
+	if (ret < 0 || ret > sizeof(link_name) - 1)
+		return NULL;
+
+	link_name[ret] = '\0';
+	if (strcmp(basename(link_name), KERNEL_DRIVER_NAME) != 0)
+		return NULL;
+
+	/* verified this device is using kernel driver, find interface name */
+	len = snprintf(
+		netif_fname,
+		sizeof(netif_fname),
+		"/sys/bus/pci/devices/%s/net",
+		pcidev);
+	if (len != sizeof(netif_fname) - 1)
+		errx(1, "malformed PCI device selector");
+
+	dirp = opendir(netif_fname);
+	if (!dirp)
+		return NULL;
+
+	while ((dp = readdir(dirp))) {
+		if (strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0) {
+			ifname = strdup(dp->d_name);
+			if (!ifname)
+				err(1, "insufficient memory");
+			closedir(dirp);
+			return ifname;
+		}
+	}
+	closedir(dirp);
+	return NULL;
+}
 
 static void open_pci_device(const char *devsel, size_t *log_offset,
     size_t *log_buf_entries, int ucode, int verbosity)
@@ -1366,12 +1496,141 @@ static void update_timestamp(void)
 			 "00:00:00.000000000 UTC ");
 }
 
+static int if_get_log_offset_size(char *ifname, int ucode)
+{
+	struct RGF_USER_USAGE rgf;
+	int ret;
+	uint32_t rgf_addr, host_addr, linker_addr;
+
+	if (ucode == 0) {
+		rgf_addr = RGF_USER_USAGE_1;
+		host_addr = FW_PERI_HOST_ADDR;
+		linker_addr = FW_PERI_LINKER_ADDR;
+	} else {
+		rgf_addr = RGF_USER_USAGE_2;
+		host_addr = UC_DATA_HOST_ADDR;
+		linker_addr = UC_DATA_LINKER_ADDR;
+	}
+
+	ret = wil_ioblock(ifname, rgf_addr, sizeof(rgf),
+			  wil_mmio_read, &rgf);
+	if (ret) {
+		restart_log = 1;
+		return ret;
+	}
+
+	log_offset = rgf.offset - linker_addr + (host_addr - BAR_HOST_ADDR);
+	log_buf_entries = LOG_SIZE_FW_LUT[rgf.log_size] / 4;
+	return 0;
+}
+
+static int if_set_log_level(char *ifname, int verbosity)
+{
+	uint32_t bitmask[4];
+	uint32_t x;
+	int ret;
+
+	if (verbosity < 0)
+		return 0;
+
+	/* Set bitmask, see struct module_level_enable */
+	x = ~(0xffffffff << (verbosity + 1));
+	x = x | x << 0x8 | x << 0x10 | x << 0x18;
+	bitmask[0] = x;
+	bitmask[1] = x;
+	bitmask[2] = x;
+	bitmask[3] = 0x10000000 | x;
+
+	ret = wil_ioblock(
+	    ifname,
+	    log_offset + BAR_HOST_ADDR +
+	        offsetof(struct log_table_header, module_level_enable),
+	    sizeof(bitmask),
+	    wil_mmio_write,
+	    &bitmask);
+
+	if (ret)
+		restart_log = 1;
+
+	return ret;
+}
+
+static void start_log(char *peri, char *pcidev, char *ifname, int ucode,
+		      int verbosity, int enable_timestamp, int once, int onlylogs)
+{
+	int i, ret;
+	const char *mod;
+
+	restart_log = 0;
+
+	if (ifname != NULL) {
+		ret = if_get_log_offset_size(ifname, ucode);
+		if (ret)
+			return;
+
+		ret = if_set_log_level(ifname, verbosity);
+		if (ret)
+			return;
+	}
+
+	if (!log_buf)
+		log_buf = malloc(log_size(log_buf_entries));
+	if (!log_buf)
+		errx(1, "Error: Unable to allocate log buffer %zd bytes",
+		     log_size(log_buf_entries));
+	struct log_table_header *h = log_buf;
+
+	mod = str_buf;
+
+	if (enable_timestamp)
+		update_timestamp();
+
+	ret = read_log(peri, ifname, log_buf, log_offset,
+		       log_size(log_buf_entries));
+	if (ret)
+		return;
+
+	if (onlylogs) {
+		wptr = log_buf_entries;
+	} else {
+		wptr = h->write_ptr;
+		if ((wptr - rptr) >= log_buf_entries) {
+			/* overflow; try to parse last wrap */
+			rptr = wptr - log_buf_entries;
+		}
+	}
+
+	if (peri)
+		printf("memdump file: <%s> ", peri);
+	if (pcidev)
+		printf("pcidev: <%s> ", pcidev);
+	if (ifname)
+		printf("ifname: <%s> ", ifname);
+	printf("offset: 0x%zx entries: %zd strings: <%s> once: %d\n",
+	       log_offset, log_buf_entries, strings_bin, once);
+
+	printf("  wptr = %u rptr = %u\n", wptr, rptr);
+	for (i = 0; i < 16; i++, mod = next_mod(mod)) {
+		modules[i] = mod;
+		struct module_level_enable *m = &h->module_level_enable[i];
+
+		printf("  %s[%2d] : %s%s%s%s%s\n", modules[i], i,
+		       m->error_level_enable ? "E" : " ",
+		       m->warn_level_enable ? "W" : " ",
+		       m->info_level_enable ? "I" : " ",
+		       m->verbose_level_enable ? "V" : " ",
+		       m->disable_new_line ? "n" : " ");
+	}
+	return;
+}
+
+
 int main(int argc, char *argv[])
 {
-	const char *mod;
-	int c, i;
+	int i, c;
 	unsigned long x;
 	char *pcidev = 0; /* PCIe device to access */
+	char *ifname = 0; /* Interface name for device */
 	char *peri = 0; /* file to read */
 	char *rgf_path;
 	char *endptr;
@@ -1468,12 +1727,28 @@ int main(int argc, char *argv[])
 		}
 	} while (c >= 0);
 
+	/*
+	 * Specifying the device option will read logs by sending ioctls to device
+	 * if it is using the wil6210 kernel driver. If it is not using the kernel
+	 * driver, logs are read from the sysfs pci resource. If not using the
+	 * kernel driver (logs are read from pci resource), unloading the driver
+	 * while this program runs will cause it to crash with SIGBUS error.
+	 *
+	 * Specifying the memdump option will read logs out of a memory dump.
+	 * Log offset and log size need to be set, or the program will attempt
+	 * to read them from file "RGF_USER_USAGE_1" in the memdump's directory.
+	 * When using the option of onlylogs, log offset and log size do not to
+	 * be set, assuming the whole memdump file consists of only logs.
+	 */
 	if (pcidev && peri)
 		errx(1, "memdump and device options cannot be specified together");
 
-	if (pcidev != NULL)
-		open_pci_device(
-			pcidev, &log_offset, &log_buf_entries, ucode, verbosity);
+	if (pcidev != NULL) {
+		ifname = find_ifname_by_driver(pcidev);
+		if (!ifname)
+			open_pci_device(
+				pcidev, &log_offset, &log_buf_entries, ucode, verbosity);
+	}
 
 	if (peri && (!log_buf_entries || !log_offset) && !onlylogs) {
 		rgf_path = get_rgf_path(peri);
@@ -1495,8 +1770,16 @@ int main(int argc, char *argv[])
 		once = 1; /* read all logs in one iteration */
 	}
 
-	if (help || (ucode && pcidev == NULL) ||
-	    !((pcidev || peri) && strings_bin && (log_offset > 0 || onlylogs) && log_buf_entries > 0)) {
+	/* check that strings_bin, log_offset, and log_buf_entries are set when
+	 * reading from device via sysfs pci resource or reading from dump
+	 */
+	help = help || (((pcidev && !ifname) || peri) &&
+			!(strings_bin && (log_offset > 0 || onlylogs) &&
+			  log_buf_entries > 0));
+	/* check that strings_bin is set when ifname is set */
+	help = help || (ifname && !strings_bin);
+
+	if (help) {
 		printf("Usage: %s [OPTION]...\n"
 		       "Extract trace log from firmware\n"
 		       "\n"
@@ -1530,9 +1813,8 @@ int main(int argc, char *argv[])
 	if (clock_gettime(CLOCK_MONOTONIC, &t1) < 0)
 		errx(1, "Unable to read the CLOCK");
 
-	printf("memdump file: <%s> offset: 0x%zx entries: %zd"
-	       " strings: <%s> once: %d\n",
-	       peri, log_offset, log_buf_entries, strings_bin, once);
+	restart_log = 1;
+
 	/* reserve extra space at the end of string buffer for a special
 	 * string that we write to the log when we encounter corrupted
 	 * offsets for string parameters. This can happen when log is
@@ -1540,40 +1822,13 @@ int main(int argc, char *argv[])
 	 */
 	extra_space = strlen(CORRUPTED_PARAM_MARK) + 1;
 	str_buf = read_strings(strings_bin, &str_sz, extra_space);
-	mod = str_buf;
 	snprintf(str_buf + str_sz, extra_space, "%s", CORRUPTED_PARAM_MARK);
-	log_buf = malloc(log_size(log_buf_entries));
-	if (!log_buf)
-		errx(1, "Error: Unable to allocate log buffer %zd bytes",
-		     log_size(log_buf_entries));
-	struct log_table_header *h = log_buf;
 
-	if (enable_timestamp)
-		update_timestamp();
-	read_log(peri, log_buf, log_offset, log_size(log_buf_entries));
-
-	if (onlylogs) {
-		wptr = log_buf_entries;
-	} else {
-		wptr = h->write_ptr;
-		if ((wptr - rptr) >= log_buf_entries) {
-			/* overflow; try to parse last wrap */
-			rptr = wptr - log_buf_entries;
-		}
-	}
-	printf("  wptr = %u rptr = %u\n", wptr, rptr);
-	for (i = 0; i < 16; i++, mod = next_mod(mod)) {
-		modules[i] = mod;
-		struct module_level_enable *m = &h->module_level_enable[i];
-
-		printf("  %s[%2d] : %s%s%s%s%s\n", modules[i], i,
-		       m->error_level_enable ? "E" : " ",
-		       m->warn_level_enable ? "W" : " ",
-		       m->info_level_enable ? "I" : " ",
-		       m->verbose_level_enable ? "V" : " ",
-		       m->disable_new_line ? "n" : " ");
-	}
 	for (;;) {
+		if (restart_log)
+			start_log(peri, pcidev, ifname, ucode, verbosity,
+				  enable_timestamp, once, onlylogs);
+
 		do_parse(onlylogs);
 		if (once)
 			break;
@@ -1585,7 +1840,7 @@ int main(int argc, char *argv[])
 
 		if (enable_timestamp)
 			update_timestamp();
-		read_log(peri, log_buf, log_offset, log_size(log_buf_entries));
+		read_log(peri, ifname, log_buf, log_offset, log_size(log_buf_entries));
 	}
 	return 0;
 }

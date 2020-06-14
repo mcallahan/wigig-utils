@@ -12,6 +12,7 @@ wil6210_sources = [
 	'wil6210_ioctl.c',
 	'wil6210_main.c',
 	'wil6210_netdev.c',
+	'wil6210_nl60g.c',
 	'wil6210_pcidev.c',
 	'wil6210_platform.c',
 	'wil6210_platform_dpdk.c',
@@ -38,6 +39,7 @@ rte_pmd_wil6210 = static_library('rte_pmd_wil6210',
 		'-Wno-sign-compare'
 	],
 	include_directories: include_directories('wil6210', 'dpdk-dhd-ctrl', '../../modules/dpdk-dhd'),
+	dependencies: dependency('libnl-3.0'),
 	link_args: '--version-script=rte_pmd_wil6210_version.map',
 	install: true
 )

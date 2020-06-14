@@ -650,6 +650,13 @@ static int wil_platform_rop_notify(void *wil_handle,
 		set_bit(wil_status_resetting, wil->status);
 		set_bit(wil_status_pci_linkdown, wil->status);
 
+		if (wil->fw_state == WIL_FW_STATE_READY)
+			wil_nl_60g_fw_state_change(wil,
+						   WIL_FW_STATE_ERROR);
+		else
+			wil_nl_60g_fw_state_change(
+				wil, WIL_FW_STATE_ERROR_BEFORE_READY);
+
 		//  schedule_work(&wil->pci_linkdown_recovery_worker);
 		break;
 	default:
@@ -730,6 +737,8 @@ wil6210_dev_init(struct rte_eth_dev *eth_dev)
 
 	wil->csr = pdev->mem_resource[0].addr;
 	wil->bar_size = bar_size;
+
+	wil_info(wil, "CSR at 0x%04x, BAR size %u\n", wil->csr, bar_size);
 
 	wil->platform_handle =
 		wil_platform_init(dev, &wil->platform_ops, &rops, wil);

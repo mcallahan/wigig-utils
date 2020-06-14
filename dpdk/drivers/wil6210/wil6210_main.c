@@ -6,6 +6,7 @@
  */
 
 #include "wil6210_ethdev.h"
+#include "wil6210_nl60g.h"
 #include "txrx.h"
 #include "txrx_edma.h"
 #include "wmi.h"
@@ -621,6 +622,14 @@ static void wil_fw_error_worker(struct work_struct *work)
 		return;
 	}
 #endif
+
+	if (wil->fw_state == WIL_FW_STATE_READY)
+		wil_nl_60g_fw_state_change(wil,
+					   WIL_FW_STATE_ERROR);
+	else
+		wil_nl_60g_fw_state_change(wil,
+					   WIL_FW_STATE_ERROR_BEFORE_READY);
+
 	// wil_fw_recovery(wil);
 	wil_api_fw_recovery(wil);
 }
@@ -755,12 +764,6 @@ int wil_priv_init(struct wil6210_priv *wil)
 	if (!wil->wmi_wq)
 		return -EAGAIN;
 
-#ifndef WIL6210_PMD
-	wil->wq_service = create_singlethread_workqueue(WIL_NAME "_service");
-	if (!wil->wq_service)
-		goto out_wmi_wq;
-#endif
-
 	wil->last_fw_recovery = jiffies;
 	wil->tx_interframe_timeout = WIL6210_ITR_TX_INTERFRAME_TIMEOUT_DEFAULT;
 	wil->rx_interframe_timeout = WIL6210_ITR_RX_INTERFRAME_TIMEOUT_DEFAULT;
@@ -796,15 +799,13 @@ int wil_priv_init(struct wil6210_priv *wil)
 	wil->rx_buff_id_count = WIL_RX_BUFF_ARR_SIZE_DEFAULT;
 
 	wil->amsdu_en = 1;
+	wil->fw_state = WIL_FW_STATE_DOWN;
+
+	wil->nl60g = nl60g_init();
+	if (!wil->nl60g)
+		wil_err(wil, "failed to allocate nl60, continue without\n");
 
 	return 0;
-
-#ifndef WIL6210_PMD
-out_wmi_wq:
-	destroy_workqueue(wil->wmi_wq);
-
-	return -EAGAIN;
-#endif
 }
 
 void wil6210_bus_request(struct wil6210_priv *wil, u32 kbps)
@@ -863,13 +864,11 @@ void wil_priv_deinit(struct wil6210_priv *wil)
 {
 	wil_dbg_misc(wil, "priv_deinit\n");
 
+	nl60g_fini(wil->nl60g);
 	wil_set_recovery_state(wil, fw_recovery_idle);
 	cancel_work_sync(&wil->fw_error_worker);
 	cancel_work_sync(&wil->pci_linkdown_recovery_worker);
 	wmi_event_flush(wil);
-#ifndef WIL6210_PMD
-	destroy_workqueue(wil->wq_service);
-#endif
 	destroy_workqueue(wil->wmi_wq);
 	kfree(wil->board_file);
 	kfree(wil->brd_info);
@@ -1534,6 +1533,7 @@ static int wil_wait_for_fw_ready(struct wil6210_priv *wil)
 	} else {
 		wil_info(wil, "FW ready after %d ms. HW version 0x%08x\n",
 			 jiffies_to_msecs(to-left), wil->hw_version);
+		wil_nl_60g_fw_state_change(wil, WIL_FW_STATE_READY);
 	}
 	return 0;
 }
@@ -1689,6 +1689,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 
 		ether_addr_copy(ndev->perm_addr, mac);
 		ether_addr_copy(ndev->dev_addr, ndev->perm_addr);
+		wil->fw_state = WIL_FW_STATE_UNKNOWN;
 		return 0;
 	}
 #endif
@@ -1715,6 +1716,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 				rc);
 	}
 
+	wil_nl_60g_fw_state_change(wil, WIL_FW_STATE_DOWN);
 	set_bit(wil_status_resetting, wil->status);
 	mutex_lock(&wil->vif_mutex);
 	wil_abort_scan_all_vifs(wil, false);

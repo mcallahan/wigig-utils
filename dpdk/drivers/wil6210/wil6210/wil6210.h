@@ -930,6 +930,17 @@ struct wil_brd_info {
 	u32 file_max_size;
 };
 
+enum wil_fw_state {
+	/* When driver loaded with debug_fw the FW state is unknown */
+	WIL_FW_STATE_UNKNOWN,
+	WIL_FW_STATE_DOWN, /* FW not loaded or not ready yet */
+	WIL_FW_STATE_READY,/* FW is ready*/
+	/* Detected FW error before FW sent ready indication */
+	WIL_FW_STATE_ERROR_BEFORE_READY,
+	/* Detected FW error after FW sent ready indication */
+	WIL_FW_STATE_ERROR,
+};
+
 struct wil6210_priv {
 	struct pci_dev *pdev;
 	u32 bar_size;
@@ -1067,6 +1078,7 @@ struct wil6210_priv {
 	u32 rgf_ucode_assert_code_addr;
 	u32 iccm_base;
 
+	enum wil_fw_state fw_state;
 	void *umac_handle;
 	struct wil_umac_ops umac_ops;
 	struct wil_umac_rops umac_rops;
@@ -1363,6 +1375,9 @@ int wil_cfg80211_mgmt_tx(struct wiphy *wiphy, struct wireless_dev *wdev,
 			 struct cfg80211_mgmt_tx_params *params,
 			 u64 *cookie);
 void wil_cfg80211_ap_recovery(struct wil6210_priv *wil);
+
+void wil_nl_60g_fw_state_change(struct wil6210_priv *wil,
+				enum wil_fw_state fw_state);
 int wil_cfg80211_iface_combinations_from_fw(
 	struct wil6210_priv *wil,
 	const struct wil_fw_record_concurrency *conc);

@@ -2152,7 +2152,7 @@ void wmi_recv_cmd(struct wil6210_priv *wil)
 			u16 id = le16_to_cpu(wmi->command_id);
 			u8 mid = wmi->mid;
 			u32 tstamp = le32_to_cpu(wmi->fw_timestamp);
-			// WIL6210_PMD wil_nl_60g_receive_wmi_evt(wil, cmd, len);
+			wil_nl_60g_receive_wmi_evt(wil, cmd, len);
 			if (test_bit(wil_status_resuming, wil->status)) {
 				if (id == WMI_TRAFFIC_RESUME_EVENTID)
 					clear_bit(wil_status_resuming,

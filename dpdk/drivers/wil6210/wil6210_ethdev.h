@@ -960,6 +960,17 @@ struct wil_brd_info {
 	u32 file_max_size;
 };
 
+enum wil_fw_state {
+	/* When driver loaded with debug_fw the FW state is unknown */
+	WIL_FW_STATE_UNKNOWN,
+	WIL_FW_STATE_DOWN, /* FW not loaded or not ready yet */
+	WIL_FW_STATE_READY,/* FW is ready*/
+	/* Detected FW error before FW sent ready indication */
+	WIL_FW_STATE_ERROR_BEFORE_READY,
+	/* Detected FW error after FW sent ready indication */
+	WIL_FW_STATE_ERROR,
+};
+
 struct wil6210_priv {
 	struct rte_pci_device *pdev;
 	u32 bar_size;
@@ -1111,6 +1122,7 @@ struct wil6210_priv {
 	u32 rgf_ucode_assert_code_addr;
 	u32 iccm_base;
 
+	enum wil_fw_state fw_state;
 	void *umac_handle;
 	//struct wil_umac_ops umac_ops;
 	//struct wil_umac_rops umac_rops;
@@ -1145,6 +1157,8 @@ struct wil6210_priv {
 	void *dhd;
 	/* handle for wigig_api */
 	void *api_priv;
+	/* handle for nl60g */
+	void *nl60g;
 
 	/* Controls whether logs are sent to DPDK */
 	u32 dbg_log_enable_mask;
@@ -1647,6 +1661,9 @@ void wil_aoa_evt_meas(struct wil6210_vif *vif,
 		      struct wmi_aoa_meas_event *evt,
 		      int len);
 void wil_nl_60g_receive_wmi_evt(struct wil6210_priv *wil, u8 *cmd, int len);
+void wil_nl_60g_fw_state_change(struct wil6210_priv *wil,
+	enum wil_fw_state fw_state);
+
 /* link loss */
 int wmi_link_maintain_cfg_write(struct wil6210_priv *wil,
 				const u8 *addr,

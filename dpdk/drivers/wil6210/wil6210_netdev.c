@@ -6,6 +6,7 @@
  */
 
 #include "wil6210_ethdev.h"
+#include "wil6210_nl60g.h"
 #include "txrx.h"
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 #include <nss_api_if.h>
@@ -305,10 +306,19 @@ int wil_if_add(struct wil6210_priv *wil)
 	if (rc < 0)
 		return rc;
 
+	if (wil->nl60g) {
+		rc = nl60g_start(wil->nl60g, wil, wil->pdev->addr);
+		if (rc != 0)
+			wil_err(wil, "failed to start nl60g, continue without\n");
+	}
+
 	if (slave_mode) {
 		rc = wil_register_slave(wil);
-		if (rc)
+		if (rc) {
+			if (wil->nl60g)
+				nl60g_stop(wil->nl60g);
 			wil_err(wil, "failed to register slave, err %d\n", rc);
+		}
 		/* continue even if failed?? */
 	}
 #endif
@@ -403,6 +413,9 @@ void wil_if_remove(struct wil6210_priv *wil)
 
 	if (slave_mode)
 		wil_unregister_slave(wil);
+
+	if (wil->nl60g)
+		nl60g_stop(wil->nl60g);
 
 	rtnl_lock();
 	wil_vif_remove(wil, 0);

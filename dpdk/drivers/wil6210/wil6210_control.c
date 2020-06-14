@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013,2016 Qualcomm Atheros, Inc.
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018,2020 The Linux Foundation. All rights reserved.
  * Copyright (c) 2019, Facebook, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -17,6 +17,7 @@
  */
 
 #include "wil6210_ethdev.h"
+#include "wil6210_nl60g.h"
 #include "slave.h"
 #include "slave_i.h"
 #include "dpdk-dhd-ctrl.h"
@@ -47,7 +48,7 @@ platform_device_alloc(const char *name, int unit)
 		return NULL;
 
 	pdev->dhd = dhd_init();
-	if (pdev == NULL) {
+	if (pdev->dhd == NULL) {
 		kfree(pdev);
 		return NULL;
 	}
@@ -575,4 +576,17 @@ uint16_t write_terra_slowpath(struct rte_mbuf **tx_pkts, const uint16_t nb_pkts)
 	}
 
 	return tx_total;
+}
+
+void wil_nl_60g_fw_state_change(struct wil6210_priv *wil,
+	enum wil_fw_state fw_state)
+{
+	wil_dbg_misc(wil, "fw_state change:%d => %d", wil->fw_state, fw_state);
+	wil->fw_state = fw_state;
+	nl60g_fw_state_evt(wil->nl60g, fw_state);
+}
+
+void wil_nl_60g_receive_wmi_evt(struct wil6210_priv *wil, u8 *cmd, int len)
+{
+	nl60g_receive_wmi_evt(wil->nl60g, cmd, len);
 }

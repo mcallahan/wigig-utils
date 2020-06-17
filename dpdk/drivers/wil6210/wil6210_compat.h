@@ -758,4 +758,41 @@ void wil_dma_free_coherent(struct wil6210_priv *dev, dma_mem_t *m);
 
 void get_random_bytes(void *buf, int nbytes);
 
+/*
+ * definitions from kernel wil6210 UAPI (ioctl)
+ * the definitions are used internally by the driver,
+ * and the functionality is exposed using nl60g API.
+ */
+
+/**
+ * operation to perform
+ *
+ * @wil_mmio_op_mask - bits defining operation,
+ * @wil_mmio_addr_mask - bits defining addressing mode
+ */
+enum wil_memio_op {
+	wil_mmio_read = 0,
+	wil_mmio_write = 1,
+	wil_mmio_op_mask = 0xff,
+	wil_mmio_addr_linker = 0 << 8,
+	wil_mmio_addr_ahb = 1 << 8,
+	wil_mmio_addr_bar = 2 << 8,
+	wil_mmio_addr_mask = 0xff00,
+};
+
+struct wil_memio {
+	uint32_t op; /* enum wil_memio_op */
+	uint32_t addr; /* should be 32-bit aligned */
+	uint32_t val;
+};
+
+struct wil_memio_block {
+	uint32_t op; /* enum wil_memio_op */
+	uint32_t addr; /* should be 32-bit aligned */
+	uint32_t size; /* should be multiple of 4 */
+	void *block; /* block contents */
+};
+
+
+
 #endif /* _WIL6210_COMPAT_H_ */

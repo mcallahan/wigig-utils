@@ -1260,7 +1260,7 @@ enum wil_dbg_type {
 	WIL_DBG_LOG_PM,
 	WIL_DBG_LOG_UMAC,
 	WIL_DBG_LOG_FW,
-	WIL_DBG_LOG_IOC,
+	WIL_DBG_LOG_MIO,
 	WIL_DBG_LOG_NUM
 };
 
@@ -1271,7 +1271,7 @@ enum wil_dbg_type {
 #define WIL_DBG_LOG_MASK_PM 	(1 << WIL_DBG_LOG_PM)
 #define WIL_DBG_LOG_MASK_UMAC	(1 << WIL_DBG_LOG_UMAC)
 #define WIL_DBG_LOG_MASK_FW 	(1 << WIL_DBG_LOG_FW)
-#define WIL_DBG_LOG_MASK_IOC	(1 << WIL_DBG_LOG_IOC)
+#define WIL_DBG_LOG_MASK_MIO	(1 << WIL_DBG_LOG_MIO)
 
 __printf(3, 4)
 void wil_dbg_trace(struct wil6210_priv *wil, int type, const char *fmt, ...);
@@ -1601,7 +1601,8 @@ void wil_indicate_layer2_update(struct wil6210_vif *vif,
 
 int wil_iftype_nl2wmi(enum nl80211_iftype type);
 
-int wil_ioctl(struct wil6210_priv *wil, void __user *data, int cmd);
+int wil_memio_dword(struct wil6210_priv *wil, struct wil_memio *io);
+int wil_memio_block(struct wil6210_priv *wil, struct wil_memio_block *io);
 int wil_request_firmware(struct wil6210_priv *wil, const char *name,
 			 bool load);
 int wil_request_board(struct wil6210_priv *wil, const char *name);

@@ -11,6 +11,7 @@ wil6210_sources = [
 	'wil6210_interrupt.c',
 	'wil6210_ioctl.c',
 	'wil6210_main.c',
+	'wil6210_memio.c',
 	'wil6210_netdev.c',
 	'wil6210_nl60g.c',
 	'wil6210_pcidev.c',

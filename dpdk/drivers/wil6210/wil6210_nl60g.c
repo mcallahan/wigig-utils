@@ -114,6 +114,8 @@ enum nl60g_cmd_type {
 	NL_60G_CMD_STATISTICS,
 	NL_60G_CMD_REGISTER,
 	NL_60G_CMD_FW_RMI,
+	NL_60G_CMD_MEMIO,
+	NL_60G_CMD_MEMIO_BLOCK,
 	NL_60G_CMD_MAX,
 };
 
@@ -160,11 +162,28 @@ struct nl60g_send_receive_wmi {
 	uint8_t buf[];
 } __attribute__((packed));
 
+struct nl60g_memio {
+	uint32_t op; /* enum wil_memio_op */
+	uint32_t addr; /* should be 32 bit aligned */
+	uint32_t val; /* value to write/fill with value read */
+};
+
+struct nl60g_memio_block {
+	uint32_t op; /* enum wil_memio_op */
+	uint32_t addr; /* should be 32 bit aligned */
+	uint32_t size; /* must be multiply of 4 */
+	uint8_t buf[];
+};
+
 enum nl60g_driver_capa {
 	NL_60G_DRIVER_CAPA_WMI_OVER_NL, /* NL command for WMI */
 	NL_60G_DRIVER_CAPA_FW_STATE, /* notifications of FW state changes */
-	/* ioctl to write to the device address space */
+	/* not used, replaced by MEMIO_WRITE below */
 	NL_60G_DRIVER_CAPA_IOCTL_WRITE,
+	/* memio using NL, read dword/block */
+	NL_60G_DRIVER_CAPA_MEMIO,
+	/* memio using NL, write dword/block support */
+	NL_60G_DRIVER_CAPA_MEMIO_WRITE,
 };
 
 enum qca_wlan_vendor_driver_capa {
@@ -173,6 +192,11 @@ enum qca_wlan_vendor_driver_capa {
 
 enum qca_wlan_vendor_driver_fw_state {
 	QCA_WLAN_VENDOR_ATTR_DRIVER_FW_STATE, /* wil_fw_state */
+};
+
+enum qca_wlan_vendor_nl60g_memio {
+	QCA_WLAN_VENDOR_ATTR_MEMIO,
+	QCA_WLAN_VENDOR_ATTR_MEMIO_BLOCK,
 };
 
 struct nl60g_event {
@@ -205,6 +229,8 @@ struct nl60g_cmd_def nl60g_cmds[] = {
 	{ NL_60G_CMD_GENERIC, true, sizeof(struct nl60g_generic) },
 	{ NL_60G_CMD_FW_WMI, true,
 	  offsetof(struct nl60g_send_receive_wmi, buf) },
+	{ NL_60G_CMD_MEMIO, true, sizeof(struct nl60g_memio) },
+	{ NL_60G_CMD_MEMIO_BLOCK, true, sizeof(struct nl60g_memio_block) },
 	{ NL_60G_CMD_MAX, false, 0 },
 };
 
@@ -782,7 +808,9 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			}
 
 			capa = BIT(NL_60G_DRIVER_CAPA_FW_STATE) |
-			       BIT(NL_60G_DRIVER_CAPA_WMI_OVER_NL);
+			       BIT(NL_60G_DRIVER_CAPA_WMI_OVER_NL) |
+			       BIT(NL_60G_DRIVER_CAPA_MEMIO) |
+			       BIT(NL_60G_DRIVER_CAPA_MEMIO_WRITE);
 			if (nla_put_u32(creply,
 			    QCA_WLAN_VENDOR_ATTR_DRIVER_CAPA,
 			    capa)) {
@@ -857,6 +885,109 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			rc = -nl_syserr2nlerr(rc);
 
 		break;
+	case NL_60G_CMD_MEMIO:
+	{
+		struct nl_msg *creply;
+		struct nlattr *vendor_data;
+		struct nl60g_memio *nl_memio;
+		struct wil_memio memio;
+
+		nl_memio = (struct nl60g_memio *)
+			nla_data(tb2[WIL_ATTR_60G_BUF]);
+		memio.op = nl_memio->op;
+		memio.addr = nl_memio->addr;
+		memio.val = nl_memio->val;
+
+		rc = wil_memio_dword(nl60g->wil, &memio);
+		if (rc) {
+			rc = -nl_syserr2nlerr(rc);
+			break;
+		}
+		nl_memio->val = memio.val;
+
+		creply = nl60g_alloc_vendor_reply(sizeof(struct nl60g_memio),
+			msg, &vendor_data);
+		if (!creply) {
+			rc = -NLE_NOMEM;
+			break;
+		}
+
+		if (nla_put(creply, QCA_WLAN_VENDOR_ATTR_MEMIO,
+			sizeof(struct nl60g_memio), nl_memio)) {
+			RTE_LOG(ERR, PMD, "fail to return CMD_MEMIO reply\n");
+			nlmsg_free(creply);
+			rc = -NLE_NOMEM;
+			break;
+		}
+		nla_nest_end(creply, vendor_data);
+		nl_send_auto(port->sk, creply);
+		nlmsg_free(creply);
+		break;
+	}
+	case NL_60G_CMD_MEMIO_BLOCK:
+	{
+		struct nl_msg *creply;
+		struct nlattr *vendor_data, *block_attr;
+		bool is_read;
+		struct nl60g_memio_block *nl_memio_blk, *nl_memio_blk_reply;
+		struct wil_memio_block memio_block;
+
+		nl_memio_blk = (struct nl60g_memio_block *)
+			nla_data(tb2[WIL_ATTR_60G_BUF]);
+		memio_block.op = nl_memio_blk->op;
+		memio_block.addr = nl_memio_blk->addr;
+		memio_block.size = nl_memio_blk->size;
+
+		/* pre-allocate the reply, it will save a memcpy for read */
+		is_read = (memio_block.op & wil_mmio_op_mask) == wil_mmio_read;
+		len = sizeof(struct nl60g_memio_block);
+		if (is_read) {
+			len += memio_block.size;
+			if (len > USHRT_MAX) {
+				rc = -NLE_MSGSIZE;
+				break;
+			}
+		} else {
+			int needed_len = len + memio_block.size;
+			if (nla_len(tb2[WIL_ATTR_60G_BUF]) < needed_len) {
+			    rc = -NLE_MSGSIZE;
+			    break;
+			}
+		}
+
+		creply = nl60g_alloc_vendor_reply(len, msg, &vendor_data);
+		if (!creply) {
+			rc = -NLE_NOMEM;
+			break;
+		}
+		block_attr = nla_reserve(
+			creply, QCA_WLAN_VENDOR_ATTR_MEMIO_BLOCK, len);
+		if (!block_attr) {
+			nlmsg_free(creply);
+			rc = -NLE_NOMEM;
+			break;
+		}
+		nl_memio_blk_reply = (struct nl60g_memio_block *)
+			nla_data(block_attr);
+		memio_block.block = is_read ? &nl_memio_blk_reply->buf :
+			&nl_memio_blk->buf;
+
+		rc = wil_memio_block(nl60g->wil, &memio_block);
+		if (rc) {
+			rc = -nl_syserr2nlerr(rc);
+			nlmsg_free(creply);
+			break;
+		}
+
+		nl_memio_blk_reply->op = memio_block.op;
+		nl_memio_blk_reply->addr = memio_block.addr;
+		nl_memio_blk_reply->size = memio_block.size;
+		nla_nest_end(creply, vendor_data);
+		nl_send_auto(port->sk, creply);
+		nlmsg_free(creply);
+		break;
+	}
+
 	default:
 		rc = -NLE_INVAL;
 		wil_err(wil, "invalid nl_60g_cmd type %d", cmd_type);

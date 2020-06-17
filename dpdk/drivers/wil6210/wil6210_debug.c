@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2013,2016 Qualcomm Atheros, Inc.
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018,2020 The Linux Foundation. All rights reserved.
  * Copyright (c) 2019, Facebook, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -29,7 +29,7 @@ static struct wil_log_state wil_dbg_log[WIL_DBG_LOG_NUM] = {
     [ WIL_DBG_LOG_WMI ] = { 0, "pmd.wil.wmi" },
     [ WIL_DBG_LOG_MISC ] = { 0, "pmd.wil.misc" },
     [ WIL_DBG_LOG_PM ] = { 0, "pmd.wil.pm" },
-    [ WIL_DBG_LOG_IOC ] = { 0, "pmd.wil.ioc" },
+    [ WIL_DBG_LOG_MIO ] = { 0, "pmd.wil.mio" },
     [ WIL_DBG_LOG_FW ] = { 0, "pmd.wil.fw" },
     [ WIL_DBG_LOG_UMAC ] = { 0, "pmd.wil.umac" },
 };

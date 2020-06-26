@@ -1604,6 +1604,8 @@ static void wil_rx_fini_edma(struct wil6210_priv *wil)
 	struct wil_ring *ring = &wil->ring_rx;
 	int i;
 
+	wil->dvpp_status.enabled = 0;
+
 	wil_dbg_misc(wil, "rx_fini_edma\n");
 
 	wil_ring_free_edma(wil, ring);

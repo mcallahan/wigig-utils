@@ -33,6 +33,10 @@ extern int dvpp_tx_avail(void *p, u32 *credit, u32 n_pipe);
 extern int dvpp_tx_complete(void *p);
 extern int dvpp_cancel_edma(void *p);
 extern int dvpp_rx_refill_edma(struct wil6210_priv *wil);
+extern netdev_tx_t dvpp_transmit_skb(void * p, struct sk_buff *skb,
+		u8 cid, struct net_device *ndev);
+extern int dvpp_handle_rx_inject(struct wil6210_priv *wil, int *quota);
+
 extern dvpp_ops_t dvpp_ops;
 extern dvpp_platform_ops_t *dvpp_p_ops;
 extern uint dvpp_inited;

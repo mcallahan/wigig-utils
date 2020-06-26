@@ -621,7 +621,7 @@ int wil_tx_sring_handler(struct wil6210_priv *wil,
 void wil_rx_handle_edma(struct wil6210_priv *wil, int *quota);
 void wil_init_txrx_ops_edma(struct wil6210_priv *wil);
 
-static void wil_tx_desc_unmap_edma(struct device *dev,
+static inline void wil_tx_desc_unmap_edma(struct device *dev,
 				   union wil_tx_desc *desc,
 				   struct wil_ctx *ctx)
 {

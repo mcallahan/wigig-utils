@@ -184,6 +184,10 @@ static netdev_tx_t wil_slave_tx_data(void *dev, u8 cid, struct sk_buff *skb)
 	struct wil6210_priv *wil = slave->wil;
 	struct net_device *ndev = wil->main_ndev;
 
+	if (module_has_dvpp) {
+			return dvpp_transmit_skb(wil, skb, cid, ndev);
+	}
+
 	return _wil_start_xmit(skb, ndev);
 }
 

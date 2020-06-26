@@ -14,6 +14,7 @@
 #include "txrx_edma.h"
 #include "txrx.h"
 #include "trace.h"
+#include "slave_i.h"
 
 uint dvpp_inited;
 
@@ -63,6 +64,9 @@ static int dvpp_ring_alloc_buf_edma(struct wil6210_priv *wil,
 	struct wil_rx_enhanced_desc dd, *d = &dd;
 	struct wil_rx_enhanced_desc *_d =
 		(struct wil_rx_enhanced_desc *)&ring->va[i].rx.enhanced;
+
+	if (unlikely(wil->dvpp_status.enabled == 0))
+		return -EAGAIN;
 
 	if (unlikely(list_empty(free))) {
 		wil->rx_buff_mgmt.free_list_empty_cnt++;
@@ -375,6 +379,10 @@ skipping:
 		stats->last_mcs_rx = wil_rx_status_get_mcs(msg);
 		if (stats->last_mcs_rx < ARRAY_SIZE(stats->rx_per_mcs))
 			stats->rx_per_mcs[stats->last_mcs_rx]++;
+
+		stats->rx_packets++;
+		/* TODO: should check if entire packets is rcvd w/o errors */
+		stats->rx_bytes += _mini.seg.len;
 	}
 
 	/* Compensate for the HW data alignment according to the status
@@ -528,6 +536,11 @@ int dvpp_tx_sring_handler(struct wil6210_priv *wil,
 					       (union wil_tx_desc *)d,
 					       ctx);
 
+			/*
+			 * TODO: sanitize stats:
+			 * netdev stats should be implemented for slow path packets only
+			 */
+
 			if (likely(msg.status == 0)) {
 				ndev->stats.tx_packets++;
 				ndev->stats.tx_bytes += ctx->desc.seg.len;
@@ -544,10 +557,14 @@ int dvpp_tx_sring_handler(struct wil6210_priv *wil,
 				atomic_dec(&stats->tx_pend_packets);
 				atomic_sub(ctx->desc.seg.len, &stats->tx_pend_bytes);
 			}
-			dvpp_p_ops->port_free_mini(&ctx->desc, wil->dvpp_status.port_id);
+			if (ctx->desc.seg.special) {
+				struct sk_buff * skb = (struct sk_buff *)(ctx->desc.data);
+				dev_kfree_skb_any(skb);
+			} else {
+				dvpp_p_ops->port_free_mini(&ctx->desc, wil->dvpp_status.port_id);
+			}
 			dvpp_desc_clear(&ctx->desc);
 
-			memset(ctx, 0, sizeof(*ctx));
 			/* Make sure the ctx is zeroed before updating the tail
 			 * to prevent a case where wil_tx_ring will see
 			 * this descriptor as used and handle it before ctx zero
@@ -625,6 +642,9 @@ int dvpp_tx_batch(void *p, u32 pipe, dvpp_desc_t *bufs, u32 n_pkts,
 	u32 swhead;
 	int avail;
 
+	if (unlikely(wil->dvpp_status.enabled == 0))
+		return -EINVAL;
+
 	spin_lock(&txdata->lock);
 	if (test_bit(wil_status_suspending, wil->status) ||
 	    test_bit(wil_status_suspended, wil->status) ||
@@ -647,7 +667,12 @@ int dvpp_tx_batch(void *p, u32 pipe, dvpp_desc_t *bufs, u32 n_pkts,
 		void *data;
 		//b = bufs[num_sent];
 		b = bufs++;
-		data = dvpp_p_ops->get_desc_kernel_address(b);
+		if (likely(!b->seg.special))
+			data = dvpp_p_ops->get_desc_kernel_address(b);
+		else {
+			struct sk_buff *skb = (struct sk_buff *)(b->data);
+			data = skb->data;
+		}
 		if (unlikely(data == 0)) {
 			break;
 		}
@@ -722,6 +747,9 @@ int dvpp_tx_batch(void *p, u32 pipe, dvpp_desc_t *bufs, u32 n_pkts,
 
 	return num_sent;
 dma_error:
+
+	spin_unlock(&txdata->lock);
+
 	wil_err(wil, "%s: dma error\n", __FUNCTION__);
 	return -EINVAL;
 }
@@ -743,6 +771,101 @@ int dvpp_tx_avail(void *p, u32 *credit, u32 n_pipe)
 
 	return i;
 }
+
+/*
+ * Packet queue for packets pending for injection into Linux kernel.
+ * Picked up by NAPI poll,in the RX softirq.
+ */
+static struct sk_buff_head dvpp_inject_list;
+
+/*
+ * dvpp_inject: called by direct-vpp so as to inject an skb into kernel stack,
+ * from the main netdev associated to the dvpp port.
+ */
+int dvpp_inject(void *p, struct sk_buff *skb, u32 pipe_id) {
+	struct wil6210_priv *wil = (struct wil6210_priv *)p;
+
+	if (slave_mode != 2) {
+		dev_kfree_skb_any(skb);
+		return -1;
+	}
+
+	skb->cb[0] = pipe_id;
+	skb_queue_tail(&dvpp_inject_list, skb);
+
+	napi_schedule(&wil->napi_rx);
+	return 0;
+}
+
+/*
+ * dvpp_handle_rx_inject:
+ * Called from napi_poll context: inject packet into kernel stack
+ */
+int dvpp_handle_rx_inject(struct wil6210_priv *wil, int *quota) {
+	struct net_device *ndev = wil->main_ndev;
+	struct wil6210_vif *vif = ndev_to_vif(ndev);
+	struct sk_buff *skb;
+
+	while (*quota > 0) {
+		skb = skb_dequeue(&dvpp_inject_list);
+		if (skb == NULL)
+			break;
+
+		(*quota)--;
+
+		if (GRO_DROP != wil_slave_rx_data(vif, skb->cb[0], skb)) {
+			/* statistics */
+			ndev->stats.rx_packets++;
+			ndev->stats.rx_bytes += skb->len;
+		} else {
+			ndev->stats.rx_errors++;
+		}
+	}
+	return 0;
+}
+
+/*
+ * Transmit an sk_buff from kernel directly to the Wigig chip.
+ */
+netdev_tx_t dvpp_transmit_skb(void * p, struct sk_buff *skb, u8 cid,
+		struct net_device *ndev) {
+	struct wil6210_priv *wil = (struct wil6210_priv *)p;
+	dvpp_desc_t *mini;
+	const u8 *da = wil_skb_get_da(skb);
+
+	/* TODO: properly handle and
+			re-enable multicast if necessary, though it is not
+			not clear whether they should go over Wigig
+			in TDM mode */
+	if (is_multicast_ether_addr(da)) {
+		wil_info(wil, "%s: drop mcast %pM %pM %02x %02x\n",
+				__FUNCTION__,
+				da, da+6, da[12], da[13]);
+		dev_kfree_skb_any(skb);
+		return NET_XMIT_DROP;
+	}
+
+	mini = (dvpp_desc_t*)&skb->cb[0];
+	dvpp_desc_clear(mini);
+	mini->data = skb;
+
+	mini->seg.len = skb->len;
+	mini->seg.eop = 1;
+	mini->seg.special = 1;
+
+	dvpp_tx_batch(p, cid, mini, 1, 0);
+
+	return NETDEV_TX_OK;
+}
+
+dvpp_ops_t dvpp_ops = {
+	.tx_fn = dvpp_tx_batch,
+	.rx_fn = dvpp_rx_handle_edma,
+	.tx_avail_fn = dvpp_tx_avail,
+	.tx_complete_fn = dvpp_tx_complete,
+	.cancel_dma_fn = dvpp_cancel_edma,
+	.inject_fn = dvpp_inject,
+};
 
 const struct platform_device_id dvpp_id_table[] = {
     {"direct-vpp", 0},
@@ -791,6 +914,7 @@ int wil_dvpp_init(void) {
 		goto done;
 	}
 
+	skb_queue_head_init(&dvpp_inject_list);
 done:
 	return 0;
 }
@@ -798,7 +922,8 @@ done:
 
 void wil_dvpp_clean(void) {
 	/* Tell DVPP that we're going away */
-	dvpp_p_ops->register_ops(NULL);
+	if (dvpp_p_ops)
+		dvpp_p_ops->register_ops(NULL);
 	/* Lose the DVPP ops */
 	dvpp_p_ops = &stub_dvpp_platform_ops;
 	/* Attach to DVPP */

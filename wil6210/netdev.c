@@ -272,7 +272,11 @@ static int wil6210_netdev_poll_rx_edma(struct napi_struct *napi, int budget)
 	int quota = budget;
 	int done;
 
-	wil_rx_handle_edma(wil, &quota);
+	if (module_has_dvpp) {
+		dvpp_handle_rx_inject(wil, &quota);
+	} else {
+		wil_rx_handle_edma(wil, &quota);
+	}
 	done = budget - quota;
 
 	if (done < budget) {
@@ -540,10 +544,11 @@ wil_vif_alloc(struct wil6210_priv *wil, const char *name,
 	ndev->netdev_ops = &wil_netdev_ops;
 	wil_set_ethtoolops(ndev);
 	ndev->ieee80211_ptr = wdev;
-	ndev->hw_features = NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
+	if (!module_has_dvpp) {
+		ndev->hw_features = NETIF_F_HW_CSUM | NETIF_F_RXCSUM |
 			    NETIF_F_SG | NETIF_F_GRO |
 			    NETIF_F_TSO | NETIF_F_TSO6;
-
+	}
 	SET_NETDEV_DEV(ndev, wiphy_dev(wdev->wiphy));
 	wdev->netdev = ndev;
 	return vif;

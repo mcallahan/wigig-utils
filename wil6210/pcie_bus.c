@@ -787,14 +787,6 @@ static struct pci_driver wil6210_driver = {
 	},
 };
 
-dvpp_ops_t dvpp_ops = {
-	.tx_fn = dvpp_tx_batch,
-	.rx_fn = dvpp_rx_handle_edma,
-	.tx_avail_fn = dvpp_tx_avail,
-	.tx_complete_fn = dvpp_tx_complete,
-	.cancel_dma_fn = dvpp_cancel_edma,
-};
-
 static int __init wil6210_driver_init(void)
 {
 	int rc;

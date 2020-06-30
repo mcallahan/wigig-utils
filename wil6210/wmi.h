@@ -293,6 +293,7 @@ enum wmi_command_id {
 	WMI_SET_VRING_PRIORITY_CMDID			= 0xA11,
 	WMI_RBUFCAP_CFG_CMDID				= 0xA12,
 	WMI_TEMP_SENSE_ALL_CMDID			= 0xA13,
+	WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID		= 0xA21,
 	WMI_SET_MAC_ADDRESS_CMDID			= 0xF003,
 	WMI_ABORT_SCAN_CMDID				= 0xF007,
 	WMI_SET_PROMISCUOUS_MODE_CMDID			= 0xF041,
@@ -1808,6 +1809,12 @@ struct wmi_vring_priority {
 	/* Weight index. Valid value is 0-3 */
 	u8 priority;
 	u8 reserved[2];
+} __packed;
+
+/* WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID */
+struct wmi_set_pcie_lane_count_cmd {
+	__le32 lane_count;
+	__le32 gen;
 } __packed;
 
 /* WMI_SET_VRING_PRIORITY_CMDID */

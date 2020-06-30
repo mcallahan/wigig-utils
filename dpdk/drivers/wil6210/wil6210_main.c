@@ -35,10 +35,6 @@ module_param(oob_mode, byte, 0444);
 MODULE_PARM_DESC(oob_mode,
 		 " enable out of the box (OOB) mode in FW, for diagnostics and certification");
 
-bool no_fw_recovery;
-module_param(no_fw_recovery, bool, 0644);
-MODULE_PARM_DESC(no_fw_recovery, " disable automatic FW error recovery");
-
 /* if not set via modparam, will be set to default value of 1/8 of
  * rx ring size during init flow
  */
@@ -49,9 +45,6 @@ MODULE_PARM_DESC(rx_ring_overflow_thrsh,
 u8 preemptive_ring_switch = true;
 module_param(preemptive_ring_switch, byte, 0444);
 MODULE_PARM_DESC(preemptive_ring_switch, " enable FW preemptive ring switch. default - yes");
-
-unsigned int mtu_max = TXRX_BUF_LEN_DEFAULT - WIL_MAX_MPDU_OVERHEAD;
-MODULE_PARM_DESC(mtu_max, " Max MTU value.");
 
 static uint rx_ring_order;
 static uint tx_ring_order	 = WIL_TX_RING_SIZE_ORDER_DEFAULT;
@@ -540,7 +533,7 @@ void wil_set_recovery_state(struct wil6210_priv *wil, int state)
 
 bool wil_is_recovery_blocked(struct wil6210_priv *wil)
 {
-	return no_fw_recovery && (wil->recovery_state == fw_recovery_pending);
+	return wil->no_fw_recovery && (wil->recovery_state == fw_recovery_pending);
 }
 
 void wil_fw_recovery(struct wil6210_priv *wil)
@@ -573,7 +566,7 @@ void wil_fw_recovery(struct wil6210_priv *wil)
 
 	wil_info(wil, "fw error recovery requested (try %d)...\n",
 		 wil->recovery_count);
-	if (!no_fw_recovery)
+	if (!wil->no_fw_recovery)
 		wil->recovery_state = fw_recovery_running;
 	if (wil_wait_for_recovery(wil) != 0)
 		return;
@@ -800,6 +793,8 @@ int wil_priv_init(struct wil6210_priv *wil)
 
 	wil->amsdu_en = 1;
 	wil->fw_state = WIL_FW_STATE_DOWN;
+
+	wil->mtu_max = TXRX_BUF_LEN_DEFAULT - WIL_MAX_MPDU_OVERHEAD;
 
 	wil->nl60g = nl60g_init();
 	if (!wil->nl60g)

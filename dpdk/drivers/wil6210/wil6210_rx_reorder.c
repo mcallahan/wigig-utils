@@ -38,7 +38,7 @@ static u16 wil_agg_size(struct wil6210_priv *wil, u16 req_agg_wsize)
 {
 	u16 max_agg_size = (slave_mode == 2) ? wil->max_agg_wsize :
 		min_t(u16, wil->max_agg_wsize, wil->max_ampdu_size /
-				 (mtu_max + WIL_MAX_MPDU_OVERHEAD));
+				 (wil->mtu_max + WIL_MAX_MPDU_OVERHEAD));
 
 	if (!req_agg_wsize)
 		return max_agg_size;

@@ -17,8 +17,6 @@
 #include "umac.h"
 #endif
 
-extern bool no_fw_recovery;
-extern unsigned int mtu_max;
 extern unsigned short rx_ring_overflow_thrsh;
 extern int agg_wsize;
 extern bool rx_align_2;
@@ -1144,6 +1142,7 @@ struct wil6210_priv {
 
 	u32 max_agg_wsize;
 	u32 max_ampdu_size;
+	u32 mtu_max;
 
 	/* slave mode */
 	void *slave_ctx;
@@ -1196,6 +1195,7 @@ struct wil6210_priv {
 	char ucode_log_path[WIL_FW_FILE_PATH_BUFSZ];
 	bool opaque_log;
 	bool crash_on_fw_err;
+	bool no_fw_recovery;
 	int fw_log_level;
 
 	size_t fw_log_offset;

@@ -4268,7 +4268,7 @@ int wil_wmi_tx_desc_ring_add(struct wil6210_vif *vif, int ring_id, int cid,
 		.cid = cid,
 		.tid = tid,
 		.encap_trans_type = WMI_VRING_ENC_TYPE_802_3,
-		.max_msdu_size = cpu_to_le16(wil_mtu2macbuf(mtu_max)),
+		.max_msdu_size = cpu_to_le16(wil_mtu2macbuf(wil->mtu_max)),
 		.schd_params = {
 			.priority = cpu_to_le16(0),
 			.timeslot_us = cpu_to_le16(0xfff),

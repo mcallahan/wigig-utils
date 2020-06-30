@@ -203,6 +203,11 @@ void wil_api_fw_recovery(struct wil6210_priv *wil)
 	struct rte_wigig_recovery_info data;
 	struct rte_wigig_client_ops *client_ops;
 
+	if (wil->no_fw_recovery) {
+		wil_info(wil, "FW recovery cancelled, no_fw_recovery\n");
+		return;
+	}
+
 	client_ops = wil->api_priv;
 
 	if (!client_ops || !client_ops->wigig_recovery) {

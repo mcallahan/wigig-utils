@@ -98,6 +98,8 @@ MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 #define WIL_UCODE_LOG_PATH_ARG "ucode-log-path"
 #define WIL_UCODE_STR_PATH_ARG "ucode-strings"
 #define WIL_FW_LOG_LEVEL_ARG "fw-log-level"
+#define WIL_NO_FW_RECOVERY_ARG "no-fw-recovery"
+#define WIL_MTU_MAX_ARG "mtu-max"
 
 static const char *const devarg_keys[] = {
 	WIL_MAC_ADDR_ARG,
@@ -109,6 +111,8 @@ static const char *const devarg_keys[] = {
 	WIL_UCODE_LOG_PATH_ARG,
 	WIL_UCODE_STR_PATH_ARG,
 	WIL_FW_LOG_LEVEL_ARG,
+	WIL_NO_FW_RECOVERY_ARG,
+	WIL_MTU_MAX_ARG,
 	NULL /* last key must be NULL */
 };
 
@@ -130,13 +134,18 @@ static int wil_set_ucode_str_path(const char *key __rte_unused,
 				  const char *value, void *arg);
 static int wil_set_fw_log_level(const char *key __rte_unused,
 				  const char *value, void *arg);
+static int wil_set_no_fw_recovery(const char *key __rte_unused,
+				  const char *value, void *arg);
+static int wil_set_mtu_max(const char *key __rte_unused,
+			   const char *value, void *arg);
 
 static const arg_handler_t devarg_handlers[] = {
 	&wil_set_mac_devarg,     &wil_set_fw_core_dump_path,
 	&wil_set_fw_str_path,    &wil_set_fw_log_path,
 	&wil_use_opaque_log,     &wil_set_crash_on_fw_err,
 	&wil_set_ucode_log_path, &wil_set_ucode_str_path,
-	&wil_set_fw_log_level
+	&wil_set_fw_log_level,   &wil_set_no_fw_recovery,
+	&wil_set_mtu_max,
 };
 
 static
@@ -442,6 +451,39 @@ wil_set_fw_log_level(const char *key __rte_unused, const char *value, void *arg)
 	} else {
 		wil->fw_log_level = val;
 	}
+	return 0;
+}
+
+static int wil_set_no_fw_recovery(const char *key __rte_unused,
+				  const char *value, void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+	if (strcmp(value, "0") == 0) {
+		wil->no_fw_recovery = false;
+		return 0;
+	} else if (strcmp(value, "1") == 0) {
+		wil->no_fw_recovery = true;
+		return 0;
+	}
+	return 1;
+}
+
+static int wil_set_mtu_max(const char *key __rte_unused,
+			   const char *value, void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+	unsigned long val;
+
+	errno = 0;
+	val = strtoul(value, NULL, 0);
+	if (errno != 0 || val < 0) {
+		return -1;
+	}
+
+	if (val < 68 || val > WIL_MAX_ETH_MTU)
+		return -1;
+
+	wil->mtu_max = val;
 	return 0;
 }
 

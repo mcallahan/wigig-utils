@@ -4,6 +4,7 @@
  * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/pci.h>
 #include <linux/moduleparam.h>
 #include <linux/etherdevice.h>
 #include <linux/if_arp.h>
@@ -2246,6 +2247,20 @@ int wmi_set_mac_address(struct wil6210_priv *wil, void *addr)
 	wil_dbg_wmi(wil, "Set MAC %pM\n", addr);
 
 	return wmi_send(wil, WMI_SET_MAC_ADDRESS_CMDID, vif->mid,
+			&cmd, sizeof(cmd));
+}
+
+int wmi_set_pcie_config_params(struct wil6210_priv *wil, int gen, int lanes)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct wmi_set_pcie_lane_count_cmd cmd;
+
+	cmd.gen = gen;
+	cmd.lane_count = lanes;
+
+	wil_dbg_wmi(wil, "Set PCIe lane count %d, gen %d\n", lanes, gen);
+
+	return wmi_send(wil, WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID, vif->mid,
 			&cmd, sizeof(cmd));
 }
 

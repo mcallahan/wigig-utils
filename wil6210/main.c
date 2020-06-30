@@ -38,6 +38,10 @@ bool no_fw_recovery;
 module_param(no_fw_recovery, bool, 0644);
 MODULE_PARM_DESC(no_fw_recovery, " disable automatic FW error recovery");
 
+bool p2mp_capable = true;
+module_param(p2mp_capable, bool, 0644);
+MODULE_PARM_DESC(p2mp_capable, " p2mp capable unit");
+
 /* if not set via modparam, will be set to default value of 1/8 of
  * rx ring size during init flow
  */
@@ -2042,7 +2046,26 @@ int __wil_up(struct wil6210_priv *wil)
 	set_bit(wil_status_napi_en, wil->status);
 
 	wil6210_bus_request(wil, WIL_DEFAULT_BUS_REQUEST_KBPS);
-
+	/* Send WMI_TDM_SET_DN_PCIE_PARAMS_CMDID as last command */
+	wil_dbg_misc(wil, "TG P2MP Wireless link capability: %d\n", p2mp_capable);
+	if (p2mp_capable) {
+		int gen, lanes;
+		u16 linkstat;
+		/* Send PCIe GEN and lane count to FW */
+		rc = pcie_capability_read_word(wil->pdev, PCI_EXP_LNKSTA, &linkstat);
+		if (rc) {
+			wil_err(wil, "pcie_capability_read_word failed, rc %d\n", rc);
+			return rc;
+		}
+		gen = linkstat & PCI_EXP_LNKSTA_CLS;
+		lanes = (linkstat & PCI_EXP_LNKSTA_NLW) >> PCI_EXP_LNKSTA_NLW_SHIFT;
+		wil_dbg_misc(wil, "Read PCIe params gen %d lanes %d\n", gen, lanes);
+		rc = wmi_set_pcie_config_params(wil, gen, lanes);
+		if (rc) {
+			wil_err(wil, "wmi_set_pcie_config_params failed, rc %d\n", rc);
+			return rc;
+		}
+	}
 	return 0;
 }
 

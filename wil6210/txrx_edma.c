@@ -24,26 +24,6 @@
 #define WIL_EDMA_RX_BUF_LEN_DEFAULT (2048)
 #define MAX_INVALID_BUFF_ID_RETRY (3)
 
-static void wil_tx_desc_unmap_edma(struct device *dev,
-				   union wil_tx_desc *desc,
-				   struct wil_ctx *ctx)
-{
-	struct wil_tx_enhanced_desc *d = (struct wil_tx_enhanced_desc *)desc;
-	dma_addr_t pa = wil_tx_desc_get_addr_edma(&d->dma);
-	u16 dmalen = le16_to_cpu(d->dma.length);
-
-	switch (ctx->mapped_as) {
-	case wil_mapped_as_single:
-		dma_unmap_single(dev, pa, dmalen, DMA_TO_DEVICE);
-		break;
-	case wil_mapped_as_page:
-		dma_unmap_page(dev, pa, dmalen, DMA_TO_DEVICE);
-		break;
-	default:
-		break;
-	}
-}
-
 static int wil_find_free_sring(struct wil6210_priv *wil)
 {
 	int i;
@@ -221,27 +201,6 @@ static int wil_ring_alloc_skb_edma(struct wil6210_priv *wil,
 	return 0;
 }
 
-static inline
-void wil_get_next_rx_status_msg(struct wil_status_ring *sring, u8 *dr_bit,
-				void *msg)
-{
-	struct wil_rx_status_compressed *_msg;
-
-	_msg = (struct wil_rx_status_compressed *)
-		(sring->va + (sring->elem_size * sring->swhead));
-	*dr_bit = WIL_GET_BITS(_msg->d0, 31, 31);
-	/* make sure dr_bit is read before the rest of status msg */
-	rmb();
-	memcpy(msg, (void *)_msg, sring->elem_size);
-}
-
-static inline void wil_sring_advance_swhead(struct wil_status_ring *sring)
-{
-	sring->swhead = (sring->swhead + 1) % sring->size;
-	if (sring->swhead == 0)
-		sring->desc_rdy_pol = 1 - sring->desc_rdy_pol;
-}
-
 static int wil_rx_refill_edma(struct wil6210_priv *wil)
 {
 	struct wil_ring *ring = &wil->ring_rx;
@@ -289,14 +248,24 @@ static void wil_move_all_rx_buff_to_free_list(struct wil6210_priv *wil,
 			list_first_entry(active, struct wil_rx_buff, list);
 		struct sk_buff *skb = rx_buff->skb;
 
-		if (unlikely(!skb)) {
-			wil_err(wil, "No Rx skb at buff_id %d\n", rx_buff->id);
+		if (module_has_dvpp) {
+			dvpp_desc_t *mini = &rx_buff->mini;
+			if (likely(mini->data)) {
+				dma_unmap_single(dev, rx_buff->pa,
+					wil->rx_buf_len, DMA_FROM_DEVICE);
+				dvpp_p_ops->port_free_mini(mini, wil->dvpp_status.port_id);
+				dvpp_desc_clear(&rx_buff->mini);
+			}
 		} else {
-			rx_buff->skb = NULL;
-			memcpy(&pa, skb->cb, sizeof(pa));
-			dma_unmap_single(dev, pa, wil->rx_buf_len,
-					 DMA_FROM_DEVICE);
-			kfree_skb(skb);
+			if (unlikely(!skb)) {
+				wil_err(wil, "No Rx skb at buff_id %d\n", rx_buff->id);
+			} else {
+				rx_buff->skb = NULL;
+				memcpy(&pa, skb->cb, sizeof(pa));
+				dma_unmap_single(dev, pa, wil->rx_buf_len,
+						 DMA_FROM_DEVICE);
+				kfree_skb(skb);
+			}
 		}
 
 		/* Move the buffer from the active to the free list */
@@ -485,8 +454,8 @@ static void wil_ring_free_edma(struct wil6210_priv *wil, struct wil_ring *ring)
 		}
 		*d = *_d;
 		wil_tx_desc_unmap_edma(dev, (union wil_tx_desc *)d, ctx);
-		if (ctx->skb)
-			dev_kfree_skb_any(ctx->skb);
+		if (WIL_CTX_SKB(ctx))
+			dev_kfree_skb_any(WIL_CTX_SKB(ctx));
 		ring->swtail = wil_ring_next_tail(ring);
 	}
 
@@ -704,7 +673,10 @@ static int wil_rx_init_edma(struct wil6210_priv *wil, uint desc_ring_order)
 		goto err_free_desc;
 
 	/* Fill descriptor ring with credits */
-	rc = wil_rx_refill_edma(wil);
+	if (module_has_dvpp)
+		rc = dvpp_rx_refill_edma(wil);
+	else
+		rc = wil_rx_refill_edma(wil);
 	if (rc)
 		goto err_free_rx_buff_arr;
 
@@ -1153,19 +1125,6 @@ static int wil_tx_desc_map_edma(union wil_tx_desc *desc,
 	return 0;
 }
 
-static inline void
-wil_get_next_tx_status_msg(struct wil_status_ring *sring, u8 *dr_bit,
-			   struct wil_ring_tx_status *msg)
-{
-	struct wil_ring_tx_status *_msg = (struct wil_ring_tx_status *)
-		(sring->va + (sring->elem_size * sring->swhead));
-
-	*dr_bit = _msg->desc_ready >> TX_STATUS_DESC_READY_POS;
-	/* make sure dr_bit is read before the rest of status msg */
-	rmb();
-	*msg = *_msg;
-}
-
 /**
  * Clean up transmitted skb's from the Tx descriptor RING.
  * Return number of descriptors cleared.
@@ -1241,7 +1200,7 @@ int wil_tx_sring_handler(struct wil6210_priv *wil,
 			struct wil_ctx *ctx = &ring->ctx[ring->swtail];
 			struct wil_tx_enhanced_desc dd, *d = &dd;
 			u16 dmalen;
-			struct sk_buff *skb = ctx->skb;
+			struct sk_buff *skb = WIL_CTX_SKB(ctx);
 
 			_d = (struct wil_tx_enhanced_desc *)
 				&ring->va[ring->swtail].tx.enhanced;
@@ -1257,7 +1216,7 @@ int wil_tx_sring_handler(struct wil6210_priv *wil,
 					  (const void *)&msg, sizeof(msg),
 					  false);
 
-			if (ctx->flags & WIL_CTX_FLAG_RESERVED_USED)
+			if (WIL_CTX_FLAGS(ctx) & WIL_CTX_FLAG_RESERVED_USED)
 				txdata->tx_reserved_count++;
 
 			wil_tx_desc_unmap_edma(dev,
@@ -1389,10 +1348,10 @@ static int wil_tx_tso_gen_desc(struct wil6210_priv *wil, void *buff_addr,
 
 	if (!frag) {
 		pa = dma_map_single(dev, buff_addr, len, DMA_TO_DEVICE);
-		ring->ctx[i].mapped_as = wil_mapped_as_single;
+		WIL_CTX_MAPPED_AS((&ring->ctx[i])) = wil_mapped_as_single;
 	} else {
 		pa = skb_frag_dma_map(dev, frag, 0, len, DMA_TO_DEVICE);
-		ring->ctx[i].mapped_as = wil_mapped_as_page;
+		WIL_CTX_MAPPED_AS((&ring->ctx[i])) = wil_mapped_as_page;
 	}
 	if (unlikely(dma_mapping_error(dev, pa))) {
 		wil_err(wil, "TSO: Skb DMA map error\n");
@@ -1410,7 +1369,7 @@ static int wil_tx_tso_gen_desc(struct wil6210_priv *wil, void *buff_addr,
 	 * in case of immediate "tx done"
 	 */
 	if (tso_desc_type == wil_tso_type_lst)
-		ring->ctx[i].skb = skb_get(skb);
+		WIL_SET_CTX_SKB((&ring->ctx[i]), skb_get(skb));
 
 	wil_hex_dump_txrx("TxD ", DUMP_PREFIX_NONE, 32, 4,
 			  (const void *)d, sizeof(*d), false);
@@ -1681,4 +1640,3 @@ void wil_init_txrx_ops_edma(struct wil6210_priv *wil)
 	wil->txrx_ops.is_rx_idle = wil_is_rx_idle_edma;
 	wil->txrx_ops.rx_fini = wil_rx_fini_edma;
 }
-

@@ -141,8 +141,10 @@ void wil6210_unmask_irq_tx(struct wil6210_priv *wil)
 
 void wil6210_unmask_irq_tx_edma(struct wil6210_priv *wil)
 {
-	wil_w(wil, RGF_INT_GEN_TX_ICR + offsetof(struct RGF_ICR, IMC),
-	      WIL6210_IMC_TX_EDMA);
+	if (!module_has_dvpp) {
+		wil_w(wil, RGF_INT_GEN_TX_ICR + offsetof(struct RGF_ICR, IMC),
+		      WIL6210_IMC_TX_EDMA);
+	}
 }
 
 void wil6210_unmask_irq_rx(struct wil6210_priv *wil)
@@ -155,8 +157,10 @@ void wil6210_unmask_irq_rx(struct wil6210_priv *wil)
 
 void wil6210_unmask_irq_rx_edma(struct wil6210_priv *wil)
 {
-	wil_w(wil, RGF_INT_GEN_RX_ICR + offsetof(struct RGF_ICR, IMC),
-	      WIL6210_IMC_RX_EDMA);
+	if (!module_has_dvpp) {
+		wil_w(wil, RGF_INT_GEN_RX_ICR + offsetof(struct RGF_ICR, IMC),
+		      WIL6210_IMC_RX_EDMA);
+	}
 }
 
 static void wil6210_unmask_irq_misc(struct wil6210_priv *wil, bool unmask_halp)
@@ -201,6 +205,14 @@ void wil_unmask_irq(struct wil6210_priv *wil)
 {
 	wil_dbg_irq(wil, "unmask_irq\n");
 
+	if (module_has_dvpp) {
+		wil_w(wil, RGF_DMA_EP_MISC_ICR + offsetof(struct RGF_ICR, ICC),
+	      WIL_ICR_ICC_MISC_VALUE);
+		wil6210_unmask_irq_pseudo(wil);
+		wil6210_unmask_irq_misc(wil, true);
+		return;
+	}
+
 	wil_w(wil, RGF_DMA_EP_RX_ICR + offsetof(struct RGF_ICR, ICC),
 	      WIL_ICR_ICC_VALUE);
 	wil_w(wil, RGF_DMA_EP_TX_ICR + offsetof(struct RGF_ICR, ICC),
@@ -213,6 +225,7 @@ void wil_unmask_irq(struct wil6210_priv *wil)
 	      WIL_ICR_ICC_VALUE);
 
 	wil6210_unmask_irq_pseudo(wil);
+
 	if (wil->use_enhanced_dma_hw) {
 		wil6210_unmask_irq_tx_edma(wil);
 		wil6210_unmask_irq_rx_edma(wil);
@@ -386,10 +399,14 @@ static irqreturn_t wil6210_irq_rx_edma(int irq, void *cookie)
 				need_unmask = false;
 				napi_schedule(&wil->napi_rx);
 			} else {
+				if (module_has_dvpp)
+					need_unmask = false;
 				wil_err(wil,
 					"Got Rx interrupt while stopping interface\n");
 			}
 		} else {
+			if (module_has_dvpp)
+				need_unmask = false;
 			wil_err(wil, "Got Rx interrupt while in reset\n");
 		}
 	}

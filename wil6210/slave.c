@@ -268,6 +268,13 @@ static int wil_register_master(void *dev, void *ctx,
 	slave->ctx = ctx;
 	wil_info(wil, "registered master for interface %s\n",
 		 wil->main_ndev->name);
+	if (module_has_dvpp) {
+		wil_info(wil, " Register dvpp port %u %pM\n",
+			wil->dvpp_status.port_id, wil->main_ndev->dev_addr);
+		dvpp_p_ops->port_state(wil, wil->dvpp_status.port_id,
+			wil->main_ndev->dev_addr, 1);
+		wil->dvpp_status.enabled = 1;
+	}
 out:
 	mutex_unlock(&slave_lock);
 	return rc;
@@ -295,6 +302,14 @@ static void wil_unregister_master(void *dev)
 
 	wil_info(wil, "unregistered master for interface %s\n",
 		 wil->main_ndev->name);
+	if (module_has_dvpp) {
+		wil_info(
+			wil,
+			" De-register dvpp port %u %pM\n",
+			wil->dvpp_status.port_id, wil->main_ndev->dev_addr);
+		wil->dvpp_status.enabled = 0;
+		dvpp_p_ops->port_state(wil, wil->dvpp_status.port_id, NULL, 0);
+	}
 out:
 	mutex_unlock(&slave_lock);
 }
@@ -436,6 +451,7 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 {
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc;
+	int ring_id;
 
 	if (slave_mode != 2) {
 		wil_err(wil, "TDM connection ignored, not full slave\n");
@@ -475,7 +491,7 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 	wil->sta[evt->cid].mid = vif->mid;
 	wil->sta[evt->cid].status = wil_sta_conn_pending;
 
-	rc = wil_ring_init_tx(vif, evt->cid);
+	rc = wil_ring_init_tx(vif, evt->cid, &ring_id);
 	if (rc) {
 		wil_err(wil, "config tx vring failed for CID %d, rc (%d)\n",
 			evt->cid, rc);
@@ -496,6 +512,12 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 
 	wil_slave_evt_connect(vif, evt->link_id_tx, evt->link_id_rx,
 			      evt->mac_addr, evt->cid);
+
+	if (module_has_dvpp) {
+		wil->sta[evt->cid].pipe_id = dvpp_ring_id_to_pipe(ring_id);
+		dvpp_p_ops->pipe_state(wil->dvpp_status.port_id, wil->sta[evt->cid].pipe_id,
+			evt->mac_addr, 1);
+	}
 out:
 	if (rc) {
 		wil->sta[evt->cid].status = wil_sta_unused;
@@ -537,6 +559,11 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 		wil_err(wil, "status_resetting, cancel disconnect event\n");
 		/* no need for cleanup, wil_reset will do that */
 		return;
+	}
+
+	if (module_has_dvpp) {
+		/* Disconnect */
+		dvpp_p_ops->pipe_state(wil->dvpp_status.port_id, sta->pipe_id, NULL, 0);
 	}
 
 	mutex_lock(&wil->mutex);

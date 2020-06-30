@@ -62,7 +62,7 @@ static void wil_print_desc_edma(struct seq_file *s, struct wil6210_priv *wil,
 			&ring->va[idx].tx.enhanced;
 
 		num_of_descs = (u8)d->mac.d[2];
-		has_skb = ring->ctx && ring->ctx[idx].skb;
+		has_skb = ring->ctx && WIL_CTX_SKB((&ring->ctx[idx]));
 		if (num_of_descs >= 1)
 			seq_printf(s, "%c", has_skb ? _h : _s);
 		else
@@ -121,7 +121,7 @@ static void wil_print_ring(struct seq_file *s, struct wil6210_priv *wil,
 				volatile struct vring_tx_desc *d =
 					&ring->va[i].tx.legacy;
 				seq_printf(s, "%c", (d->dma.status & BIT(0)) ?
-					   _s : (ring->ctx[i].skb ? _h : 'h'));
+					   _s : (WIL_CTX_SKB((&ring->ctx[i])) ? _h : 'h'));
 			}
 		}
 		seq_puts(s, "\n");
@@ -1211,7 +1211,7 @@ static int wil_txdesc_debugfs_show(struct seq_file *s, void *data)
 
 	if (wil->use_enhanced_dma_hw) {
 		if (tx) {
-			skb = ring->ctx ? ring->ctx[txdesc_idx].skb : NULL;
+			skb = ring->ctx ? WIL_CTX_SKB((&ring->ctx[txdesc_idx])) : NULL;
 		} else if (wil->rx_buff_mgmt.buff_arr) {
 			struct wil_rx_enhanced_desc *rx_d =
 				(struct wil_rx_enhanced_desc *)
@@ -1225,7 +1225,7 @@ static int wil_txdesc_debugfs_show(struct seq_file *s, void *data)
 				skb = wil->rx_buff_mgmt.buff_arr[buff_id].skb;
 		}
 	} else {
-		skb = ring->ctx[txdesc_idx].skb;
+		skb = WIL_CTX_SKB((&ring->ctx[txdesc_idx]));
 	}
 	if (tx)
 		seq_printf(s, "Tx[%2d][%3d] = {\n", ring_idx,
@@ -1667,6 +1667,75 @@ static const struct file_operations fops_info = {
 	.release	= single_release,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
+};
+
+/*---------dvpp------------*/
+static ssize_t wil_write_dvpp(struct file *file, const char __user *buf,
+				  size_t len, loff_t *ppos)
+{
+	struct seq_file *s = file->private_data;
+	struct wil6210_priv *wil = s->private;
+	int rc;
+	long on;
+
+	char *kbuf = kmalloc(len + 1, GFP_KERNEL);
+
+	if (!kbuf)
+		return -ENOMEM;
+	if (copy_from_user(kbuf, buf, len)) {
+		kfree(kbuf);
+		return -EIO;
+	}
+
+	kbuf[len] = '\0';
+	rc = kstrtol(kbuf, 0, &on);
+	kfree(kbuf);
+	if (rc)
+		return rc;
+
+	wil_info(wil, "port %u will %s dvpp\n",wil->dvpp_status.port_id, (unsigned int)on?"enable":"disable");
+
+	if (on) {
+		if (wil->main_ndev == NULL) {
+			wil_err(wil, "Error: no device, cannot enable DVPP\n");
+			return len;
+		}
+		rc = dvpp_p_ops->port_state(wil, wil->dvpp_status.port_id, wil->main_ndev->dev_addr, 1);
+		wil->dvpp_status.enabled = 1;
+		dvpp_rx_refill_edma(wil);
+	} else {
+		rc = dvpp_p_ops->port_state(wil, wil->dvpp_status.port_id, NULL, 0);
+		wil->dvpp_status.enabled = 0;
+		dvpp_cancel_edma(wil);
+	}
+	wil_info(wil, "port %u %s dvpp rc=%d\n", wil->dvpp_status.port_id,
+			(unsigned int)on?"enabled":"disabled", rc);
+
+	return len;
+}
+
+static int wil_dvpp_debugfs_show(struct seq_file *s, void *data)
+{
+	struct wil6210_priv *wil = s->private;
+	seq_printf(s, "port id     : %d\n", wil->dvpp_status.port_id);
+	seq_printf(s, "enabled     : %d\n", wil->dvpp_status.enabled);
+	seq_printf(s, "error       : %d\n", wil->dvpp_status.error);
+	seq_printf(s, "refill fail : %d\n", wil->refill_fail);
+	seq_printf(s, "ndev : %p\n", wil->main_ndev);
+	return 0;
+}
+
+static int wil_dvpp_seq_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, wil_dvpp_debugfs_show, inode->i_private);
+}
+
+static const struct file_operations fops_dvpp = {
+	.open = wil_dvpp_seq_open,
+	.release = single_release,
+	.read = seq_read,
+	.llseek = seq_lseek,
+	.write = wil_write_dvpp,
 };
 
 /*---------recovery------------*/
@@ -2750,6 +2819,7 @@ static const struct {
 	{"link_stats_global",	0644,	&fops_link_stats_global},
 	{"tx_latency",	0644,		&fops_tx_latency},
 	{"rbufcap",	0244,		&fops_rbufcap},
+	{ "dvpp",	0444,		&fops_dvpp },
 };
 
 static void wil6210_debugfs_init_files(struct wil6210_priv *wil,
@@ -2835,8 +2905,10 @@ static const int dbg_off_count = 4 * (ARRAY_SIZE(isr_off) - 1) +
 
 int wil6210_debugfs_init(struct wil6210_priv *wil)
 {
-	struct dentry *dbg = wil->debug = debugfs_create_dir(WIL_NAME,
-			wil_to_wiphy(wil)->debugfsdir);
+	char name[32];
+	sprintf(name, WIL_NAME "_%c", 0x30 + wil->dvpp_status.port_id);
+	struct dentry *dbg = wil->debug =
+		debugfs_create_dir(name, 0 /*wil_to_wiphy(wil)->debugfsdir*/);
 	if (IS_ERR_OR_NULL(dbg))
 		return -ENODEV;
 

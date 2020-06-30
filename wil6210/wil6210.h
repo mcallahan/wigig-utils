@@ -20,6 +20,24 @@
 #include "fw.h"
 #include "umac.h"
 
+#include "dvpp_descriptor.h"
+#include "dvpp_module_interface.h"
+
+extern int wil_dvpp_init(void);
+extern void wil_dvpp_clean(void);
+extern int dvpp_tx_batch(void *p, u32 flow, dvpp_desc_t *b, u32 n_pkts,
+			 u32 verbose);
+extern int dvpp_rx_handle_edma(void *p, dvpp_desc_t *b, u32 n_pkts,
+			       u32 verbose);
+extern int dvpp_tx_avail(void *p, u32 *credit, u32 n_pipe);
+extern int dvpp_tx_complete(void *p);
+extern int dvpp_cancel_edma(void *p);
+extern int dvpp_rx_refill_edma(struct wil6210_priv *wil);
+extern dvpp_ops_t dvpp_ops;
+extern dvpp_platform_ops_t *dvpp_p_ops;
+extern uint dvpp_inited;
+extern bool module_has_dvpp;
+
 extern bool no_fw_recovery;
 extern bool country_specific_board_file;
 extern bool ignore_reg_hints;
@@ -538,11 +556,19 @@ enum { /* for wil_ctx.mapped_as */
  * struct wil_ctx - software context for ring descriptor
  */
 struct wil_ctx {
-	struct sk_buff *skb;
-	u8 nr_frags;
-	u8 mapped_as:4;
-	u8 flags:4;
+	/* Keeps wil_ctx as 64 bits for performance purpose. */
+	dvpp_desc_t desc;
 };
+
+/* Needs 1 bits */
+#define WIL_CTX_FLAGS(ctx) ctx->desc.seg.flags
+/* Needs 4 bits */
+#define WIL_CTX_MAPPED_AS(ctx) ctx->desc.seg.hi
+/* Needs 4 bits, i.e. 16 fragments... */
+#define WIL_CTX_NR_FRAGS(ctx) ctx->desc.seg.lo
+#define WIL_CTX_SKB(ctx) (struct sk_buff *)(ctx->desc.data)
+#define WIL_SET_CTX_SKB(ctx, skb) ctx->desc.data = (u64)skb;
+
 
 struct wil_desc_ring_rx_swtail { /* relevant for enhanced DMA only */
 	u32 *va;
@@ -571,8 +597,11 @@ struct wil_ring {
  * Used for enhanced DMA RX chaining.
  */
 struct wil_ring_rx_data {
-	/* the skb being assembled */
-	struct sk_buff *skb;
+	union {
+		/* the buffer being assembled */
+		dvpp_desc_t mini;
+		struct sk_buff *skb;
+	};
 	/* true if we are skipping a bad fragmented packet */
 	bool skipping;
 };
@@ -793,6 +822,7 @@ struct wil_sta_info {
 	u8 aid; /* 1-254; 0 if unknown/not reported */
 	bool fst_link_loss;
 	bool net_queue_stopped; /* used when q_per_sta enabled */
+	u32 pipe_id; /* TX ring ID */
 };
 
 enum {
@@ -927,7 +957,11 @@ struct wil6210_vif {
  * RX buffer allocated for enhanced DMA RX descriptors
  */
 struct wil_rx_buff {
-	struct sk_buff *skb;
+	union {
+		dvpp_desc_t mini;
+		struct sk_buff *skb;
+	};
+	u64 pa;
 	struct list_head list;
 	int id;
 };
@@ -976,7 +1010,20 @@ enum wil_fw_state {
 	WIL_FW_STATE_ERROR,
 };
 
+enum dvpp_error {
+	DVPP_ERROR_CANCELLED,
+	DVPP_ERROR_MULTISEG_RX,
+};
+
+struct dvpp_status {
+	u8 port_id;
+	u8 enabled;
+	u8 error;
+	u8 res;
+};
+
 struct wil6210_priv {
+	struct dvpp_status dvpp_status;
 	struct pci_dev *pdev;
 	u32 bar_size;
 	struct wiphy *wiphy;
@@ -1165,6 +1212,9 @@ struct wil6210_priv {
 
 	/* helper for logging in wil_start_xmit */
 	bool pr_once_fw;
+
+	/* dvpp stats */
+	u32 refill_fail;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)
@@ -1507,7 +1557,7 @@ void wil_fw_recovery(struct wil6210_priv *wil);
 void wil_pci_linkdown_recovery_worker(struct work_struct *work);
 
 /* TX API */
-int wil_ring_init_tx(struct wil6210_vif *vif, int cid);
+int wil_ring_init_tx(struct wil6210_vif *vif, int cid, int *id);
 void wil_ring_fini_tx(struct wil6210_priv *wil, int id);
 int wil_vring_init_bcast(struct wil6210_vif *vif, int id, int size);
 int wil_bcast_init(struct wil6210_vif *vif);

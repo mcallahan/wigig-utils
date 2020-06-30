@@ -262,7 +262,7 @@ static void wil_txdesc_unmap(struct device *dev, union wil_tx_desc *desc,
 	dma_addr_t pa = wil_desc_addr(&d->dma.addr);
 	u16 dmalen = le16_to_cpu(d->dma.length);
 
-	switch (ctx->mapped_as) {
+	switch (WIL_CTX_MAPPED_AS(ctx)) {
 	case wil_mapped_as_single:
 		dma_unmap_single(dev, pa, dmalen, DMA_TO_DEVICE);
 		break;
@@ -312,8 +312,8 @@ static void wil_vring_free(struct wil6210_priv *wil, struct wil_ring *vring)
 			}
 			*d = *_d;
 			wil_txdesc_unmap(dev, (union wil_tx_desc *)d, ctx);
-			if (ctx->skb)
-				dev_kfree_skb_any(ctx->skb);
+			if (WIL_CTX_SKB(ctx))
+				dev_kfree_skb_any(WIL_CTX_SKB(ctx));
 			vring->swtail = wil_ring_next_tail(vring);
 		} else { /* rx */
 			struct vring_rx_desc dd, *d = &dd;
@@ -325,7 +325,7 @@ static void wil_vring_free(struct wil6210_priv *wil, struct wil_ring *vring)
 			pa = wil_desc_addr(&d->dma.addr);
 			dmalen = le16_to_cpu(d->dma.length);
 			dma_unmap_single(dev, pa, dmalen, DMA_FROM_DEVICE);
-			kfree_skb(ctx->skb);
+			kfree_skb(WIL_CTX_SKB(ctx));
 			wil_ring_advance_head(vring, 1);
 		}
 	}
@@ -377,7 +377,7 @@ static int wil_vring_alloc_skb(struct wil6210_priv *wil, struct wil_ring *vring,
 	d->dma.status = 0; /* BIT(0) should be 0 for HW_OWNED */
 	d->dma.length = cpu_to_le16(sz);
 	*_d = *d;
-	vring->ctx[i].skb = skb;
+	WIL_SET_CTX_SKB((&vring->ctx[i]), skb);
 
 	return 0;
 }
@@ -557,8 +557,8 @@ again:
 		return NULL;
 	}
 
-	skb = vring->ctx[i].skb;
-	vring->ctx[i].skb = NULL;
+	skb = WIL_CTX_SKB((&vring->ctx[i]));
+	WIL_SET_CTX_SKB((&vring->ctx[i]), NULL);
 	wil_ring_advance_head(vring, 1);
 	if (!skb) {
 		wil_err(wil, "No Rx skb at [%d]\n", i);
@@ -1772,7 +1772,7 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 				      tcp_hdr_len, skb_net_hdr_len);
 	wil_tx_last_desc(hdr_desc);
 
-	vring->ctx[i].mapped_as = wil_mapped_as_single;
+	WIL_CTX_MAPPED_AS((&vring->ctx[i])) = wil_mapped_as_single;
 	hdr_ctx = &vring->ctx[i];
 
 	descs_used++;
@@ -1808,14 +1808,16 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 				pa = skb_frag_dma_map(dev, frag,
 						      skb_frag_size(frag) - len,
 						      lenmss, DMA_TO_DEVICE);
-				vring->ctx[i].mapped_as = wil_mapped_as_page;
+				WIL_CTX_MAPPED_AS((&vring->ctx[i])) =
+					wil_mapped_as_page;
 			} else {
 				pa = dma_map_single(dev,
 						    skb->data +
 						    skb_headlen(skb) - headlen,
 						    lenmss,
 						    DMA_TO_DEVICE);
-				vring->ctx[i].mapped_as = wil_mapped_as_single;
+				WIL_CTX_MAPPED_AS((&vring->ctx[i])) =
+					wil_mapped_as_single;
 				headlen -= lenmss;
 			}
 
@@ -1858,7 +1860,7 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 					/* first segment include hdr desc for
 					 * release
 					 */
-					hdr_ctx->nr_frags = sg_desc_cnt;
+					WIL_CTX_NR_FRAGS(hdr_ctx) = sg_desc_cnt;
 					wil_tx_desc_set_nr_frags(first_desc,
 								 sg_desc_cnt +
 								 1);
@@ -1867,7 +1869,7 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 					wil_tx_desc_set_nr_frags(first_desc,
 								 sg_desc_cnt);
 				}
-				first_ctx->nr_frags = sg_desc_cnt - 1;
+				WIL_CTX_NR_FRAGS(first_ctx) = sg_desc_cnt - 1;
 
 				wil_tx_last_desc(d);
 
@@ -1913,7 +1915,7 @@ static int __wil_tx_vring_tso(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	 * to prevent skb release before accounting
 	 * in case of immediate "tx done"
 	 */
-	vring->ctx[i].skb = skb_get(skb);
+	WIL_SET_CTX_SKB((&vring->ctx[i]), skb_get(skb));
 
 	/* performance monitoring */
 	used = wil_ring_used_tx(vring);
@@ -2042,8 +2044,8 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 
 	if (unlikely(dma_mapping_error(dev, pa)))
 		return -EINVAL;
-	ring->ctx[i].mapped_as = wil_mapped_as_single;
-	ring->ctx[i].flags = ctx_flags;
+	WIL_CTX_MAPPED_AS((&ring->ctx[i])) = wil_mapped_as_single;
+	WIL_CTX_FLAGS((&ring->ctx[i])) = ctx_flags;
 	/* 1-st segment */
 	wil->txrx_ops.tx_desc_map((union wil_tx_desc *)d, pa, len,
 				   ring_index);
@@ -2059,7 +2061,7 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 		goto dma_error;
 	}
 
-	ring->ctx[i].nr_frags = nr_frags;
+	WIL_CTX_NR_FRAGS((&ring->ctx[i])) = nr_frags;
 	wil_tx_desc_set_nr_frags(d, nr_frags + 1);
 
 	/* middle segments */
@@ -2080,8 +2082,8 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 				ring_index);
 			goto dma_error;
 		}
-		ring->ctx[i].mapped_as = wil_mapped_as_page;
-		ring->ctx[i].flags = ctx_flags;
+		WIL_CTX_MAPPED_AS((&ring->ctx[i])) = wil_mapped_as_page;
+		WIL_CTX_FLAGS((&ring->ctx[i])) = ctx_flags;
 
 		wil->txrx_ops.tx_desc_map((union wil_tx_desc *)d,
 					   pa, len, ring_index);
@@ -2104,7 +2106,7 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	 * to prevent skb release before accounting
 	 * in case of immediate "tx done"
 	 */
-	ring->ctx[i].skb = skb_get(skb);
+	WIL_SET_CTX_SKB((&ring->ctx[i]), skb_get(skb));
 
 	/* performance monitoring */
 	used = wil_ring_used_tx(ring);
@@ -2469,6 +2471,11 @@ netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	struct wil_ring *ring;
 	int rc;
 
+	if (module_has_dvpp) {
+		ndev->stats.tx_dropped++;
+		dev_kfree_skb_any(skb);
+		return NET_XMIT_DROP;
+	}
 	wil_dbg_txrx(wil, "start_xmit\n");
 	if (unlikely(!test_bit(wil_status_fwready, wil->status))) {
 		if (!wil->pr_once_fw) {
@@ -2609,7 +2616,7 @@ int wil_tx_complete(struct wil6210_vif *vif, int ringid)
 		 * last fragment. look for it.
 		 * In TSO the first DU will include hdr desc
 		 */
-		int lf = (vring->swtail + ctx->nr_frags) % vring->size;
+		int lf = (vring->swtail + WIL_CTX_NR_FRAGS(ctx)) % vring->size;
 		/* TODO: check we are not past head */
 
 		_d = &vring->va[lf].tx.legacy;
@@ -2623,7 +2630,7 @@ int wil_tx_complete(struct wil6210_vif *vif, int ringid)
 			struct sk_buff *skb;
 
 			ctx = &vring->ctx[vring->swtail];
-			skb = ctx->skb;
+			skb = WIL_CTX_SKB(ctx);
 			_d = &vring->va[vring->swtail].tx.legacy;
 
 			*d = *_d;

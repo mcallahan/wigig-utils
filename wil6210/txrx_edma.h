@@ -71,6 +71,15 @@
 #define WIL_EDMA_DESC_TX_CFG_PSEUDO_HEADER_CALC_EN_POS 5
 #define WIL_EDMA_DESC_TX_CFG_PSEUDO_HEADER_CALC_EN_LEN 1
 
+/* Max number of entries (packets to complete) to update the hwtail of tx
+ * status ring. Should be power of 2
+ */
+#define WIL_EDMA_TX_SRING_UPDATE_HW_TAIL 128
+#define WIL_EDMA_MAX_DATA_OFFSET (2)
+/* RX buffer size must be aligned to 4 bytes */
+#define WIL_EDMA_RX_BUF_LEN_DEFAULT (2048)
+#define MAX_INVALID_BUFF_ID_RETRY (3)
+
 /* Enhanced Rx descriptor - MAC part
  * [dword 0] : Reserved
  * [dword 1] : Reserved
@@ -585,11 +594,64 @@ dma_addr_t wil_rx_desc_get_addr_edma(struct wil_ring_rx_enhanced_dma *dma)
 			   ((u64)le16_to_cpu(dma->addr_high_high) << 48);
 }
 
+static inline void wil_sring_advance_swhead(struct wil_status_ring *sring)
+{
+	sring->swhead = (sring->swhead + 1) % sring->size;
+	if (sring->swhead == 0)
+		sring->desc_rdy_pol = 1 - sring->desc_rdy_pol;
+}
+
+static inline
+void wil_get_next_rx_status_msg(struct wil_status_ring *sring, u8 *dr_bit,
+				void *msg)
+{
+	struct wil_rx_status_compressed *_msg;
+
+	_msg = (struct wil_rx_status_compressed *)
+		(sring->va + (sring->elem_size * sring->swhead));
+	*dr_bit = WIL_GET_BITS(_msg->d0, 31, 31);
+	/* make sure dr_bit is read before the rest of status msg */
+	rmb();
+	memcpy(msg, (void *)_msg, sring->elem_size);
+}
+
 void wil_configure_interrupt_moderation_edma(struct wil6210_priv *wil);
 int wil_tx_sring_handler(struct wil6210_priv *wil,
 			 struct wil_status_ring *sring);
 void wil_rx_handle_edma(struct wil6210_priv *wil, int *quota);
 void wil_init_txrx_ops_edma(struct wil6210_priv *wil);
 
-#endif /* WIL6210_TXRX_EDMA_H */
+static void wil_tx_desc_unmap_edma(struct device *dev,
+				   union wil_tx_desc *desc,
+				   struct wil_ctx *ctx)
+{
+	struct wil_tx_enhanced_desc *d = (struct wil_tx_enhanced_desc *)desc;
+	dma_addr_t pa = wil_tx_desc_get_addr_edma(&d->dma);
+	u16 dmalen = le16_to_cpu(d->dma.length);
 
+	switch (WIL_CTX_MAPPED_AS(ctx)) {
+	case wil_mapped_as_single:
+		dma_unmap_single(dev, pa, dmalen, DMA_TO_DEVICE);
+		break;
+	case wil_mapped_as_page:
+		dma_unmap_page(dev, pa, dmalen, DMA_TO_DEVICE);
+		break;
+	default:
+		break;
+	}
+}
+
+static inline void
+wil_get_next_tx_status_msg(struct wil_status_ring *sring, u8 *dr_bit,
+			   struct wil_ring_tx_status *msg)
+{
+	struct wil_ring_tx_status *_msg = (struct wil_ring_tx_status *)
+		(sring->va + (sring->elem_size * sring->swhead));
+
+	*dr_bit = _msg->desc_ready >> TX_STATUS_DESC_READY_POS;
+	/* make sure dr_bit is read before the rest of status msg */
+	rmb();
+	*msg = *_msg;
+}
+
+#endif /* WIL6210_TXRX_EDMA_H */

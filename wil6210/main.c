@@ -657,7 +657,7 @@ static int wil_find_free_ring(struct wil6210_priv *wil)
 	return -EINVAL;
 }
 
-int wil_ring_init_tx(struct wil6210_vif *vif, int cid)
+int wil_ring_init_tx(struct wil6210_vif *vif, int cid, int *id)
 {
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc = -EINVAL, ringid;
@@ -681,6 +681,8 @@ int wil_ring_init_tx(struct wil6210_vif *vif, int cid)
 		wil_err(wil, "init TX for CID %d MID %d vring %d failed\n",
 			cid, vif->mid, ringid);
 
+	if (id)
+		*id = ringid;
 out:
 	return rc;
 }

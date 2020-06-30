@@ -658,6 +658,8 @@ static const char *eventid2name(u16 eventid)
 	}
 }
 
+static u64 wmi_rate_limit_log = 0;
+static u32 wmi_log_cnt = 0;
 static int __wmi_send(struct wil6210_priv *wil, u16 cmdid, u8 mid,
 		      void *buf, u16 len, bool force_send)
 {
@@ -692,7 +694,14 @@ static int __wmi_send(struct wil6210_priv *wil, u16 cmdid, u8 mid,
 	might_sleep();
 
 	if (!test_bit(wil_status_fwready, wil->status) && !force_send) {
-		wil_err(wil, "WMI: cannot send command while FW not ready\n");
+		ktime_t now = ktime_get();
+		if (now && ((now - wmi_rate_limit_log) > NSEC_PER_SEC)) {
+			wil_err(wil,
+				"WMI: cannot send command while FW not ready, cnt %u\n",
+				wmi_log_cnt);
+			wmi_rate_limit_log = now;
+		}
+		wmi_log_cnt++;
 		return -EAGAIN;
 	}
 
@@ -1125,7 +1134,7 @@ static void wmi_evt_connect(struct wil6210_vif *vif, int id, void *d, int len)
 	wil->sta[evt->cid].mid = vif->mid;
 	wil->sta[evt->cid].status = wil_sta_conn_pending;
 
-	rc = wil_ring_init_tx(vif, evt->cid);
+	rc = wil_ring_init_tx(vif, evt->cid, 0);
 	if (rc) {
 		wil_err(wil, "config tx vring failed for CID %d, rc (%d)\n",
 			evt->cid, rc);

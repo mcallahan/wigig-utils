@@ -221,12 +221,24 @@ out:
 	return qid;
 }
 
+static int wil_eth_mac_addr(struct net_device *ndev, void *p)
+{
+	struct wil6210_vif *vif = ndev_to_vif(ndev);
+	struct wil6210_priv *wil = vif_to_wil(vif);
+	struct sockaddr *addr = p;
+	wil_info(wil, "%s: port %u dev %s %pM\n", __FUNCTION__,
+		wil->dvpp_status.port_id, ndev->name, addr->sa_data);
+	eth_mac_addr(ndev, p);
+	/* TODO: DVPP, inform of address change */
+	return 0;
+}
+
 static const struct net_device_ops wil_netdev_ops = {
 	.ndo_open		= wil_open,
 	.ndo_stop		= wil_stop,
 	.ndo_start_xmit		= wil_start_xmit,
 	.ndo_select_queue	= wil_select_queue,
-	.ndo_set_mac_address	= eth_mac_addr,
+	.ndo_set_mac_address	= wil_eth_mac_addr,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_change_mtu		= wil_change_mtu,
 	.ndo_do_ioctl		= wil_do_ioctl,

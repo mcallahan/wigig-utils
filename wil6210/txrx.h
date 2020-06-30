@@ -640,6 +640,18 @@ void wil_tx_desc_set_nr_frags(struct vring_tx_desc *d, int nr_frags)
 	d->mac.d[2] |= (nr_frags << MAC_CFG_DESC_TX_2_NUM_OF_DESCRIPTORS_POS);
 }
 
+static inline u32 dvpp_pipe_to_ring_id(u32 pipe)
+{
+	return pipe + 1;
+}
+
+static inline u32 dvpp_ring_id_to_pipe(u32 ring_id)
+{
+    if (ring_id >= 1)
+		ring_id--;
+	return ring_id;
+}
+
 void wil_netif_rx_any(struct sk_buff *skb, struct net_device *ndev);
 void wil_netif_rx(struct sk_buff *skb, struct net_device *ndev, int cid,
 		  struct wil_net_stats *stats, bool gro);

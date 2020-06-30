@@ -21,6 +21,10 @@ bool ftm_mode;
 module_param(ftm_mode, bool, 0444);
 MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 
+bool module_has_dvpp = false;
+module_param(module_has_dvpp, bool, 0444);
+MODULE_PARM_DESC(module_has_dvpp, " Uses DVPP, default - false");
+
 static int wil6210_pm_notify(struct notifier_block *notify_block,
 			     unsigned long mode, void *unused);
 
@@ -401,6 +405,7 @@ static void wil_platform_ops_uninit(struct wil6210_priv *wil)
 	memset(&wil->platform_ops, 0, sizeof(wil->platform_ops));
 }
 
+static u32 _port = 0;
 static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	struct wil6210_priv *wil;
@@ -435,6 +440,8 @@ static int wil_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		return rc;
 	}
 
+	/* Alloc port id in the order of PCI enumeration. */
+	wil->dvpp_status.port_id = _port++;
 	wil->pdev = pdev;
 	pci_set_drvdata(pdev, wil);
 	wil->bar_size = bar_size;
@@ -780,9 +787,20 @@ static struct pci_driver wil6210_driver = {
 	},
 };
 
+dvpp_ops_t dvpp_ops = {
+	.tx_fn = dvpp_tx_batch,
+	.rx_fn = dvpp_rx_handle_edma,
+	.tx_avail_fn = dvpp_tx_avail,
+	.tx_complete_fn = dvpp_tx_complete,
+	.cancel_dma_fn = dvpp_cancel_edma,
+};
+
 static int __init wil6210_driver_init(void)
 {
 	int rc;
+
+	if (module_has_dvpp)
+		wil_dvpp_init();
 
 	rc = wil_platform_modinit();
 	if (rc)
@@ -791,12 +809,15 @@ static int __init wil6210_driver_init(void)
 	rc = pci_register_driver(&wil6210_driver);
 	if (rc)
 		wil_platform_modexit();
+
 	return rc;
 }
 module_init(wil6210_driver_init);
 
 static void __exit wil6210_driver_exit(void)
 {
+	if (module_has_dvpp)
+		wil_dvpp_clean();
 	pci_unregister_driver(&wil6210_driver);
 	wil_platform_modexit();
 }

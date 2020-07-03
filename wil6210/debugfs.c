@@ -1688,11 +1688,30 @@ static ssize_t wil_write_dvpp(struct file *file, const char __user *buf,
 	}
 
 	kbuf[len] = '\0';
+
+	/* Add support for setting DBG flags on per port basis */
+	if (strncmp("dbg", kbuf, 3) == 0) {
+		long debug;
+		if (strlen(kbuf) < 5) {
+			kfree(kbuf);
+			return len;
+		}
+		rc = kstrtol(kbuf + 4, 0, &debug);
+		if (rc == 0) {
+			wil_info(wil, "dvpp port %u set debug 0x%x\n",
+				wil->dvpp_status.port_id, debug);
+			wil->dvpp_status.dbg = debug;
+		}
+		kfree(kbuf);
+		return len;
+	}
+
 	rc = kstrtol(kbuf, 0, &on);
 	kfree(kbuf);
 	if (rc)
-		return rc;
+		return len;
 
+	/* Add support for enabling/disabling DVPP */
 	wil_info(wil, "port %u will %s dvpp\n",wil->dvpp_status.port_id, (unsigned int)on?"enable":"disable");
 
 	if (on) {
@@ -1720,6 +1739,7 @@ static int wil_dvpp_debugfs_show(struct seq_file *s, void *data)
 	seq_printf(s, "port id     : %d\n", wil->dvpp_status.port_id);
 	seq_printf(s, "enabled     : %d\n", wil->dvpp_status.enabled);
 	seq_printf(s, "error       : %d\n", wil->dvpp_status.error);
+	seq_printf(s, "dbg         : 0x%x\n", wil->dvpp_status.dbg);
 	seq_printf(s, "refill fail : %d\n", wil->refill_fail);
 	seq_printf(s, "ndev : %p\n", wil->main_ndev);
 	return 0;

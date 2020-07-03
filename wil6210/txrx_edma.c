@@ -454,6 +454,7 @@ static void wil_ring_free_edma(struct wil6210_priv *wil, struct wil_ring *ring)
 		}
 		*d = *_d;
 		wil_tx_desc_unmap_edma(dev, (union wil_tx_desc *)d, ctx);
+		/* TODO: need to free DVPP mini descriptors properly */
 		if (WIL_CTX_SKB(ctx))
 			dev_kfree_skb_any(WIL_CTX_SKB(ctx));
 		ring->swtail = wil_ring_next_tail(ring);

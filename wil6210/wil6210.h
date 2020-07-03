@@ -1019,11 +1019,14 @@ enum dvpp_error {
 	DVPP_ERROR_MULTISEG_RX,
 };
 
+#define DVPP_PORT_DBG_TX 1
+#define DVPP_PORT_DBG_RX 2
+#define DVPP_PORT_WIL_PERF_MONITORING 4
 struct dvpp_status {
 	u8 port_id;
 	u8 enabled;
 	u8 error;
-	u8 res;
+	u8 dbg;
 };
 
 struct wil6210_priv {

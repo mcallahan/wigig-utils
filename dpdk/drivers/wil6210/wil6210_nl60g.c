@@ -148,6 +148,8 @@ enum nl60g_generic_cmd {
 	NL_60G_GEN_FW_RESET,
 	NL_60G_GEN_GET_DRIVER_CAPA,
 	NL_60G_GEN_GET_FW_STATE,
+	NL_60G_GEN_AUTO_RADAR_RX_CONFIG, /* automotive radar */
+	NL_60G_GEN_GET_STA_INFO,
 };
 
 /* this structure has to be packed because buf_len field
@@ -161,6 +163,22 @@ struct nl60g_send_receive_wmi {
 	uint16_t buf_len;
 	uint8_t buf[];
 } __attribute__((packed));
+
+/* a single station entry for NL_60G_GET_STA_INFO,
+ * the index in the array is the CID
+ */
+struct wil_nl_60g_sta_info_entry {
+	uint8_t mac_addr[ETH_ALEN];
+	uint16_t aid;
+	uint8_t status; /* enum wil_sta_status */
+	uint8_t mid;
+	uint8_t reserved[2]; /* align to 32 bit structure size */
+};
+
+struct wil_nl_60g_sta_info {
+	uint32_t num_cids;
+	struct wil_nl_60g_sta_info_entry stations[];
+};
 
 struct nl60g_memio {
 	uint32_t op; /* enum wil_memio_op */
@@ -184,6 +202,8 @@ enum nl60g_driver_capa {
 	NL_60G_DRIVER_CAPA_MEMIO,
 	/* memio using NL, write dword/block support */
 	NL_60G_DRIVER_CAPA_MEMIO_WRITE,
+	/* provides the GET_STA_INFO generic command */
+	NL_60G_DRIVER_CAPA_GET_STA_INFO,
 };
 
 enum qca_wlan_vendor_driver_capa {
@@ -192,6 +212,10 @@ enum qca_wlan_vendor_driver_capa {
 
 enum qca_wlan_vendor_driver_fw_state {
 	QCA_WLAN_VENDOR_ATTR_DRIVER_FW_STATE, /* wil_fw_state */
+};
+
+enum qca_wlan_vendor_nl60g_sta_info {
+	QCA_WLAN_VENDOR_ATTR_STA_INFO,
 };
 
 enum qca_wlan_vendor_nl60g_memio {
@@ -703,6 +727,20 @@ static int nl60g_send_reply_msg(struct nl_sock *sk, struct nl_msg *req,
 	return rc;
 }
 
+static void nl60g_fill_sta_info_entry(struct wil6210_priv *wil,
+	struct wil_nl_60g_sta_info_entry *entry, int cid)
+{
+	struct wil_sta_info *p = &wil->sta[cid];
+	uint8_t mid = (p->status != wil_sta_unused) ? p->mid : UINT8_MAX;
+	uint16_t aid = (p->status == wil_sta_connected) ? p->aid : 0;
+
+	entry->status = p->status;
+	memcpy(entry->mac_addr, p->addr, ETH_ALEN);
+	entry->mid = mid;
+	entry->aid = aid;
+	entry->reserved[0] = entry->reserved[1] = 0;
+}
+
 /*
  * handles requests received over the local socket.
  * based on the wil_nl_60g_handle_cmd function in
@@ -810,7 +848,8 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			capa = BIT(NL_60G_DRIVER_CAPA_FW_STATE) |
 			       BIT(NL_60G_DRIVER_CAPA_WMI_OVER_NL) |
 			       BIT(NL_60G_DRIVER_CAPA_MEMIO) |
-			       BIT(NL_60G_DRIVER_CAPA_MEMIO_WRITE);
+			       BIT(NL_60G_DRIVER_CAPA_MEMIO_WRITE) |
+			       BIT(NL_60G_DRIVER_CAPA_GET_STA_INFO);
 			if (nla_put_u32(creply,
 			    QCA_WLAN_VENDOR_ATTR_DRIVER_CAPA,
 			    capa)) {
@@ -847,6 +886,41 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 				rc = -NLE_NOMEM;
 				break;
 			}
+			nla_nest_end(creply, vendor_data);
+
+			nl_send_auto(port->sk, creply);
+			nlmsg_free(creply);
+			break;
+		}
+		case NL_60G_GEN_GET_STA_INFO:
+		{
+			struct nl_msg *creply;
+			struct nlattr *vendor_data, *reply_attr;
+			int num_sta = ARRAY_SIZE(wil->sta), i;
+			int reply_len = sizeof(struct wil_nl_60g_sta_info) +
+				num_sta * sizeof(struct wil_nl_60g_sta_info_entry);
+			struct wil_nl_60g_sta_info *si;
+
+			creply = nl60g_alloc_vendor_reply(reply_len, msg, &vendor_data);
+			if (!creply) {
+				rc = -NLE_NOMEM;
+				break;
+			}
+
+			reply_attr = nla_reserve(creply,
+				QCA_WLAN_VENDOR_ATTR_STA_INFO, reply_len);
+			if (!reply_attr) {
+				nlmsg_free(creply);
+				rc = -NLE_NOMEM;
+				break;
+			}
+			si = (struct wil_nl_60g_sta_info *)nla_data(reply_attr);
+			si->num_cids = num_sta;
+			for (i = 0; i < num_sta; i++) {
+				nl60g_fill_sta_info_entry(
+					wil, &si->stations[i], i);
+			}
+
 			nla_nest_end(creply, vendor_data);
 
 			nl_send_auto(port->sk, creply);

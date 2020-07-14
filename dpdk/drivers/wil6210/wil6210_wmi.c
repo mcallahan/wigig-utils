@@ -189,8 +189,10 @@ const struct fw_map talyn_mb_fw_mapping[] = {
 	{0x8c2000, 0x8c2128, 0x8c2000, "dma_ofu", true, true},
 	/* ucode debug 4k */
 	{0x8c3000, 0x8c4000, 0x8c3000, "ucode_debug", true, true},
-	/* upper area 1536k */
-	{0x900000, 0xa80000, 0x900000, "upper", true, true},
+	/* upper1 area 768k */
+	{0x900000, 0x9c0000, 0x900000, "upper1", true, true},
+	/* upper2 area 512k */
+	{0xa00000, 0xa80000, 0xa00000, "upper2", true, true},
 	/* UCODE areas - accessible by debugfs blobs but not by
 	 * wmi_addr_remap. UCODE areas MUST be added AFTER FW areas!
 	 */

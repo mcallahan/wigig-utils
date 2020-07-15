@@ -1479,6 +1479,29 @@ static void open_pci_device(const char *devsel, size_t *log_offset,
 	}
 }
 
+static void copy_opaque_log(void)
+{
+	struct log_table_header *h = log_buf;
+
+	wptr = h->write_ptr;
+	if (rptr > wptr) {
+		rptr = wptr > log_buf_entries ? wptr - log_buf_entries : 0;
+	}
+	if ((wptr - rptr) >= log_buf_entries) {
+		rptr = wptr - log_buf_entries;
+	}
+	if (wptr / log_buf_entries > rptr / log_buf_entries) {
+		fwrite((void *)(&h->evt[rptr % log_buf_entries]), 4,
+			log_buf_entries - rptr % log_buf_entries, stdout);
+		fwrite((void *)(&h->evt[0]), 4, wptr % log_buf_entries, stdout);
+	} else {
+		fwrite((void *)(&h->evt[rptr % log_buf_entries]), 4,
+			wptr - rptr, stdout);
+	}
+	fflush(stdout);
+	rptr = wptr;
+}
+
 static void update_timestamp(void)
 {
 	int toffset;
@@ -1578,48 +1601,56 @@ static void start_log(char *peri, char *pcidev, char *ifname, int ucode,
 	if (!log_buf)
 		errx(1, "Error: Unable to allocate log buffer %zd bytes",
 		     log_size(log_buf_entries));
-	struct log_table_header *h = log_buf;
-
-	mod = str_buf;
-
-	if (enable_timestamp)
-		update_timestamp();
 
 	ret = read_log(peri, ifname, log_buf, log_offset,
 		       log_size(log_buf_entries));
 	if (ret)
 		return;
 
-	if (onlylogs) {
-		wptr = log_buf_entries;
-	} else {
-		wptr = h->write_ptr;
-		if ((wptr - rptr) >= log_buf_entries) {
-			/* overflow; try to parse last wrap */
-			rptr = wptr - log_buf_entries;
+	if (strings_bin) {
+		struct log_table_header *h = log_buf;
+
+		mod = str_buf;
+
+		if (enable_timestamp)
+			update_timestamp();
+
+		if (onlylogs) {
+			wptr = log_buf_entries;
+		} else {
+			wptr = h->write_ptr;
+			if ((wptr - rptr) >= log_buf_entries) {
+				/* overflow; try to parse last wrap */
+				rptr = wptr - log_buf_entries;
+			}
 		}
-	}
 
-	if (peri)
-		printf("memdump file: <%s> ", peri);
-	if (pcidev)
-		printf("pcidev: <%s> ", pcidev);
-	if (ifname)
-		printf("ifname: <%s> ", ifname);
-	printf("offset: 0x%zx entries: %zd strings: <%s> once: %d\n",
-	       log_offset, log_buf_entries, strings_bin, once);
+		if (peri)
+			printf("memdump file: <%s> ", peri);
+		if (pcidev)
+			printf("pcidev: <%s> ", pcidev);
+		if (ifname)
+			printf("ifname: <%s> ", ifname);
+		printf("offset: 0x%zx entries: %zd strings: <%s> once: %d\n",
+			log_offset, log_buf_entries, strings_bin, once);
 
-	printf("  wptr = %u rptr = %u\n", wptr, rptr);
-	for (i = 0; i < 16; i++, mod = next_mod(mod)) {
-		modules[i] = mod;
-		struct module_level_enable *m = &h->module_level_enable[i];
+		printf("  wptr = %u rptr = %u\n", wptr, rptr);
+		for (i = 0; i < 16; i++, mod = next_mod(mod)) {
+			modules[i] = mod;
+			struct module_level_enable *m = &h->module_level_enable[i];
 
-		printf("  %s[%2d] : %s%s%s%s%s\n", modules[i], i,
-		       m->error_level_enable ? "E" : " ",
-		       m->warn_level_enable ? "W" : " ",
-		       m->info_level_enable ? "I" : " ",
-		       m->verbose_level_enable ? "V" : " ",
-		       m->disable_new_line ? "n" : " ");
+			printf("  %s[%2d] : %s%s%s%s%s\n", modules[i], i,
+				m->error_level_enable ? "E" : " ",
+				m->warn_level_enable ? "W" : " ",
+				m->info_level_enable ? "I" : " ",
+				m->verbose_level_enable ? "V" : " ",
+				m->disable_new_line ? "n" : " ");
+		}
+	} else {
+		ret = fwrite((void *)log_buf, 1, sizeof(struct log_table_header),
+			stdout);
+		if (ret < sizeof(struct log_table_header))
+			err(1, "writing opaque log header failed");
 	}
 	return;
 }
@@ -1771,13 +1802,13 @@ int main(int argc, char *argv[])
 	}
 
 	/* check that strings_bin, log_offset, and log_buf_entries are set when
-	 * reading from device via sysfs pci resource or reading from dump
-	 */
-	help = help || (((pcidev && !ifname) || peri) &&
-			!(strings_bin && (log_offset > 0 || onlylogs) &&
+	 * reading from dump */
+	help = help || (peri && !(strings_bin && (log_offset > 0 || onlylogs) &&
 			  log_buf_entries > 0));
-	/* check that strings_bin is set when ifname is set */
-	help = help || (ifname && !strings_bin);
+	/* check that log_offset, and log_buf_entries are set when reading from
+	 * device via sysfs pci */
+	help = help || ((pcidev && !ifname) && !((log_offset > 0 || onlylogs) &&
+			  log_buf_entries > 0));
 
 	if (help) {
 		printf("Usage: %s [OPTION]...\n"
@@ -1787,9 +1818,12 @@ int main(int argc, char *argv[])
 		       " The following switches are mandatory:\n"
 		       "  -d, --device=FILE		PCIe device selector to read logs from\n"
 		       "  -m, --memdump=FILE		File to read memory dump from\n"
-		       "  -s, --strings=FILE		File with format strings\n"
 		       "  The device and memdump parameters are mutually exclusive.\n"
 		       " The following switches are optional:\n"
+		       "  -s, --strings=FILE		File with format strings.\n"
+		       "				Optional when using -d, not optional for -m.\n"
+		       "				If this option is not used with -d, the program will output opaque logs\n"
+		       "				which can later be read by using the -m, -s, and -O options.\n"
 		       "  -l, --logsize=NUMBER		Log buffer size, entries.\n"
 		       "				Default - read from RGF\n"
 		       "  -o, --offset=NUMBER		Offset of the log buffer in memdump, bytes.\n"
@@ -1813,23 +1847,27 @@ int main(int argc, char *argv[])
 	if (clock_gettime(CLOCK_MONOTONIC, &t1) < 0)
 		errx(1, "Unable to read the CLOCK");
 
-	restart_log = 1;
-
 	/* reserve extra space at the end of string buffer for a special
 	 * string that we write to the log when we encounter corrupted
 	 * offsets for string parameters. This can happen when log is
 	 * wrapped in the middle of a log message
 	 */
-	extra_space = strlen(CORRUPTED_PARAM_MARK) + 1;
-	str_buf = read_strings(strings_bin, &str_sz, extra_space);
-	snprintf(str_buf + str_sz, extra_space, "%s", CORRUPTED_PARAM_MARK);
+	if (strings_bin) {
+		extra_space = strlen(CORRUPTED_PARAM_MARK) + 1;
+		str_buf = read_strings(strings_bin, &str_sz, extra_space);
+		snprintf(str_buf + str_sz, extra_space, "%s", CORRUPTED_PARAM_MARK);
+	}
+
+	start_log(peri, pcidev, ifname, ucode, verbosity, enable_timestamp,
+		once, onlylogs);
 
 	for (;;) {
-		if (restart_log)
-			start_log(peri, pcidev, ifname, ucode, verbosity,
-				  enable_timestamp, once, onlylogs);
+		if (strings_bin) {
+			do_parse(onlylogs);
+		} else {
+			copy_opaque_log();
+		}
 
-		do_parse(onlylogs);
 		if (once)
 			break;
 
@@ -1841,6 +1879,13 @@ int main(int argc, char *argv[])
 		if (enable_timestamp)
 			update_timestamp();
 		read_log(peri, ifname, log_buf, log_offset, log_size(log_buf_entries));
+
+		if (restart_log) {
+			if (!strings_bin)
+				err(1, "cannot restart opaque log if driver is reloaded");
+			start_log(peri, pcidev, ifname, ucode, verbosity, enable_timestamp,
+				once, onlylogs);
+		}
 	}
 	return 0;
 }

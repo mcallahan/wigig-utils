@@ -16,9 +16,17 @@
 
 #include "wil6210_ethdev.h"
 
+#if WIL_RTE_LOG_LEVEL >= RTE_LOG_DEBUG
 #define wil_hex_dump_memio(prefix_str, buf, len) \
 	print_hex_dump_debug(WIL_DBG_LOG_MIO, "DBG[MIO ]" prefix_str, \
 			     DUMP_PREFIX_OFFSET, 16, 1, buf, len, true)
+#else
+static inline
+void wil_hex_dump_memio(const char *prefix_str, const void *buf, size_t len)
+{
+}
+#endif
+
 #define wil_dbg_memio(wil, fmt, arg...) wil_dbg(wil, MIO, "DBG[MIO ]" fmt, ##arg)
 
 static void __iomem *wil_memio_addr(struct wil6210_priv *wil, uint32_t addr,

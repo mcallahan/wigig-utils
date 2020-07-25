@@ -180,7 +180,7 @@ static int wil_ring_alloc_skb_edma(struct wil6210_priv *wil,
 		return -EAGAIN;
 	}
 
-	skb = rte_mbuf_raw_alloc(ring->mpool);
+	skb = rte_pktmbuf_alloc(ring->mpool);
 	if (unlikely(!skb)) {
 		wil_err(wil, "Unable to alloc mbuf\n");
 		return -ENOMEM;
@@ -961,13 +961,6 @@ again:
 	}
 	stats = &wil->sta[cid].stats;
 
-	if (unlikely(dmalen < ETH_HLEN)) {
-		wil_dbg_txrx(wil, "Short frame, len = %d\n", dmalen);
-		stats->rx_short_frame++;
-		rxdata->skipping = true;
-		goto skipping;
-	}
-
 	if (unlikely(dmalen > sz)) {
 		wil_err(wil, "Rx size too large: %d bytes!\n", dmalen);
 		stats->rx_large_frame++;
@@ -1023,6 +1016,13 @@ skipping:
 	skb->userdata = NULL;
 	rxdata->skb = NULL;
 	rxdata->skipping = false;
+
+	if (unlikely(skb->pkt_len < ETH_HLEN)) {
+		wil_dbg_txrx(wil, "Short frame, len = %d\n", skb->pkt_len);
+		stats->rx_short_frame++;
+		rte_pktmbuf_free(skb);
+		goto again;
+	}
 
 	if (stats) {
 		stats->last_mcs_rx = wil_rx_status_get_mcs(msg);

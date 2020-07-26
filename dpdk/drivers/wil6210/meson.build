@@ -17,6 +17,7 @@ wil6210_sources = [
 	'wil6210_pcidev.c',
 	'wil6210_platform.c',
 	'wil6210_platform_dpdk.c',
+	'wil6210_pmc.c',
 	'wil6210_rx_reorder.c',
 	'wil6210_slave.c',
 	'wil6210_txrx.c',

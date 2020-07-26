@@ -31,6 +31,9 @@
 
 #include <netlink/netlink.h>
 
+#include "wil6210_ethdev.h"
+#include "wil6210_pmc.h"
+
 /* maximum number of nl60g ports(connections) */
 #define NL60G_MAX_PORTS 4
 
@@ -43,6 +46,9 @@ struct nl60g_port {
 	struct nl_cb *cb;
 	struct nl_sock *sk;
 	struct nl_msg *reply;
+	/* for reading PMC data and ring descriptors */
+	struct wil_pmc_reader_ops pmc_reader, pmcring_reader;
+	void *pmc_reader_ctx, *pmcring_reader_ctx;
 	/* thread for processing requests on this socket */
 	pthread_t req_thread;
 	int exit_sockets[2];
@@ -57,7 +63,6 @@ struct nl60g_state {
 	struct nl60g_port ports[NL60G_MAX_PORTS];
 	int exit_sockets[2];
 	pthread_t poll_thread;
-	int read_port_index;
 	/* protects modifications to ports array */
 	pthread_mutex_t ports_mutex;
 };

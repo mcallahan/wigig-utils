@@ -780,7 +780,8 @@ wil6210_dev_init(struct rte_eth_dev *eth_dev)
 	wil->csr = pdev->mem_resource[0].addr;
 	wil->bar_size = bar_size;
 
-	wil_info(wil, "CSR at 0x%04x, BAR size %u\n", wil->csr, bar_size);
+	wil_info(wil, "CSR at 0x0x%" PRIXPTR ", BAR size %u\n",
+		 (uintptr_t)wil->csr, bar_size);
 
 	wil->platform_handle =
 		wil_platform_init(dev, &wil->platform_ops, &rops, wil);

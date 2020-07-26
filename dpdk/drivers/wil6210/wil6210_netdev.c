@@ -7,6 +7,7 @@
 
 #include "wil6210_ethdev.h"
 #include "wil6210_nl60g.h"
+#include "wil6210_pmc.h"
 #include "txrx.h"
 #if defined(CONFIG_WIL6210_NSS_SUPPORT)
 #include <nss_api_if.h>
@@ -306,6 +307,7 @@ int wil_if_add(struct wil6210_priv *wil)
 	if (rc < 0)
 		return rc;
 
+	wil_pmc_init(wil);
 	if (wil->nl60g) {
 		rc = nl60g_start(wil->nl60g, wil, wil->pdev->addr);
 		if (rc != 0)
@@ -317,6 +319,7 @@ int wil_if_add(struct wil6210_priv *wil)
 		if (rc) {
 			if (wil->nl60g)
 				nl60g_stop(wil->nl60g);
+			wil_pmc_free(wil, false);
 			wil_err(wil, "failed to register slave, err %d\n", rc);
 		}
 		/* continue even if failed?? */
@@ -416,6 +419,11 @@ void wil_if_remove(struct wil6210_priv *wil)
 
 	if (wil->nl60g)
 		nl60g_stop(wil->nl60g);
+
+	/* free pmc memory without sending command to fw, as it will
+	 * be reset on the way down anyway
+	 */
+	wil_pmc_free(wil, false);
 
 	rtnl_lock();
 	wil_vif_remove(wil, 0);

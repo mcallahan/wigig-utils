@@ -48,6 +48,7 @@
 #include <netlink/genl/genl.h>
 
 #include "wil6210_ethdev.h"
+#include "wil6210_pmc.h"
 #include "wil6210_nl60g.h"
 
 #include <wil6210_compat.h>
@@ -116,6 +117,7 @@ enum nl60g_cmd_type {
 	NL_60G_CMD_FW_RMI,
 	NL_60G_CMD_MEMIO,
 	NL_60G_CMD_MEMIO_BLOCK,
+	NL_60G_CMD_PMC,
 	NL_60G_CMD_MAX,
 };
 
@@ -150,6 +152,13 @@ enum nl60g_generic_cmd {
 	NL_60G_GEN_GET_FW_STATE,
 	NL_60G_GEN_AUTO_RADAR_RX_CONFIG, /* automotive radar */
 	NL_60G_GEN_GET_STA_INFO,
+};
+
+enum nl60g_pmc_cmd {
+	NL_60G_PMC_ALLOC,
+	NL_60G_PMC_FREE,
+	NL_60G_PMC_GET_DATA,
+	NL_60G_PMC_GET_DESC_DATA,
 };
 
 /* this structure has to be packed because buf_len field
@@ -204,6 +213,8 @@ enum nl60g_driver_capa {
 	NL_60G_DRIVER_CAPA_MEMIO_WRITE,
 	/* provides the GET_STA_INFO generic command */
 	NL_60G_DRIVER_CAPA_GET_STA_INFO,
+	NL_60G_DRIVER_CAPA_PMC_LEGACY_OVER_NL,
+	NL_60G_DRIVER_CAPA_PMC_CONTINUOUS,
 };
 
 enum qca_wlan_vendor_driver_capa {
@@ -223,6 +234,29 @@ enum qca_wlan_vendor_nl60g_memio {
 	QCA_WLAN_VENDOR_ATTR_MEMIO_BLOCK,
 };
 
+/* NL_60G_PMC_GET_DATA and NL_60G_PMC_GET_DESC_DATA reply */
+enum qca_wlan_vendor_pmc_get_data {
+	/* total amount of bytes currently available for reading.
+	 * will be returned when GET_DATA/GET_DESC_DATA is called
+	 * with num_bytes == 0
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH,
+	/* payload data */
+	QCA_WLAN_VENDOR_ATTR_PMC_DATA,
+	/* flag: will be set if more data is waiting in the PMC ring.
+	 * user should issue more calls to GET_DATA or GET_DESC_DATA to receive
+	 * the additional data
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_MORE_DATA,
+	/* This attribute stores the minimum amount of data that can be received
+	 * in a single call to GET_DATA/GET_DESC_DATA.
+	 * When this attribute is set, no data is returned (PMC_DATA will not
+	 * be set) and the GET_DATA/GET_DESC_DATA call will fail with -NLE_FAILURE.
+	 * The user is expected to retry the call with a bigger buffer.
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
+};
+
 struct nl60g_event {
 	uint32_t evt_type; /* nl60g_evt_type */
 	uint32_t buf_len;
@@ -230,15 +264,29 @@ struct nl60g_event {
 	uint8_t buf[];
 };
 
-struct nl60g_generic { /* NL_60G_CMD_GENERIC */
-	uint32_t cmd_id; /* nl60g_generic_cmd */
+/* for commands with sub-commands such as GENERIC and PMC */
+struct nl60g_subcmd_hdr {
+	uint32_t cmd_id;
 };
 
 struct nl60g_generic_force_wmi {
-	struct nl60g_generic hdr;
+	struct nl60g_subcmd_hdr hdr;
 	uint32_t enable;
 };
 
+
+struct nl60g_pmc_alloc {
+	struct nl60g_subcmd_hdr hdr; /* contains command id */
+	uint32_t num_desc; /* number of descriptors in the PMC ring */
+	uint32_t payload_size;
+};
+
+/* used for NL_60G_PMC_GET_DATA and NL_60G_PMC_GET_DESC_DATA */
+struct nl60g_pmc_get_data {
+	struct nl60g_subcmd_hdr hdr; /* contians command id */
+	/* number of bytes to read. 0 to get available bytes to read */
+	uint32_t num_bytes;
+};
 
 struct nl60g_cmd_def {
 	enum nl60g_cmd_type cmd;
@@ -246,16 +294,34 @@ struct nl60g_cmd_def {
 	bool need_buf;
 	/* if need_buf is true, minimum expected buffer length */
 	uint32_t len;
+	/* subcommands if any */
+	struct nl60g_subcmd_def *subcmds;
 };
 
-struct nl60g_cmd_def nl60g_cmds[] = {
-	{ NL_60G_CMD_REGISTER, true, sizeof(uint32_t) },
-	{ NL_60G_CMD_GENERIC, true, sizeof(struct nl60g_generic) },
+struct nl60g_subcmd_def {
+	uint32_t cmd_id;
+	/* total length needed including the command id, 0 to terminate list */
+	uint32_t len;
+};
+
+static struct nl60g_subcmd_def nl60g_pmc_cmds[] = {
+	{ NL_60G_PMC_ALLOC, sizeof(struct nl60g_pmc_alloc) },
+	{ NL_60G_PMC_FREE, sizeof(struct nl60g_subcmd_hdr) },
+	{ NL_60G_PMC_GET_DATA, sizeof(struct nl60g_pmc_get_data) },
+	{ NL_60G_PMC_GET_DESC_DATA, sizeof(struct nl60g_pmc_get_data) },
+	{ 0, 0 },
+};
+
+static struct nl60g_cmd_def nl60g_cmds[] = {
+	{ NL_60G_CMD_REGISTER, true, sizeof(uint32_t), NULL },
+	{ NL_60G_CMD_GENERIC, true, sizeof(struct nl60g_subcmd_hdr), NULL },
 	{ NL_60G_CMD_FW_WMI, true,
-	  offsetof(struct nl60g_send_receive_wmi, buf) },
-	{ NL_60G_CMD_MEMIO, true, sizeof(struct nl60g_memio) },
-	{ NL_60G_CMD_MEMIO_BLOCK, true, sizeof(struct nl60g_memio_block) },
-	{ NL_60G_CMD_MAX, false, 0 },
+	  offsetof(struct nl60g_send_receive_wmi, buf), NULL },
+	{ NL_60G_CMD_MEMIO, true, sizeof(struct nl60g_memio), NULL },
+	{ NL_60G_CMD_MEMIO_BLOCK, true, sizeof(struct nl60g_memio_block),
+	  NULL },
+	{ NL_60G_CMD_PMC, true, sizeof(struct nl60g_subcmd_hdr), nl60g_pmc_cmds },
+	{ NL_60G_CMD_MAX, false, 0, NULL },
 };
 
 struct nl60g_state *nl60g_init(void)
@@ -430,25 +496,51 @@ static int nl60g_send_handler(struct nl_sock *sk, struct nl_msg *msg)
 static bool nl60g_validate_cmd(uint32_t cmd, struct nlattr **tb, int *plen)
 {
 	int i;
+	struct nl60g_cmd_def *def = NULL;
+	struct nl60g_subcmd_hdr *gcmd;
+	struct nl60g_subcmd_def *subcmds, *subcmd = NULL;
 
 	if (!plen)
 		return false;
 
 	*plen = 0;
+
 	for (i = 0; nl60g_cmds[i].cmd != NL_60G_CMD_MAX; i++) {
-		if (nl60g_cmds[i].cmd != cmd)
-			continue;
-		if (!nl60g_cmds[i].need_buf)
-			return true;
-		if (!tb[WIL_ATTR_60G_BUF])
-			return false;
-		*plen = nla_len(tb[WIL_ATTR_60G_BUF]);
-		if (*plen < nl60g_cmds[i].len)
-			return false;
-		return true;
+		if (nl60g_cmds[i].cmd == cmd) {
+			def = &nl60g_cmds[i];
+			break;
+		}
 	}
 
-	return false;
+	if (!def)
+		return false;
+
+	if (!def->need_buf)
+		return true;
+	if (!tb[WIL_ATTR_60G_BUF])
+		return false;
+	*plen = nla_len(tb[WIL_ATTR_60G_BUF]);
+	if (*plen < def->len)
+		return false;
+
+	subcmds = def->subcmds;
+	if (!subcmds)
+		return true;
+	gcmd = (struct nl60g_subcmd_hdr *)nla_data(tb[WIL_ATTR_60G_BUF]);
+	while (subcmds->len) {
+		if (subcmds->cmd_id == gcmd->cmd_id) {
+			subcmd = subcmds;
+			break;
+		}
+		subcmds++;
+	}
+
+	if (!subcmd)
+		return false;
+	if (*plen < subcmd->len)
+		return false;
+
+	return true;
 }
 
 /*
@@ -743,6 +835,175 @@ static void nl60g_fill_sta_info_entry(struct wil6210_priv *wil,
 	entry->reserved[0] = entry->reserved[1] = 0;
 }
 
+/* max amount of data we can return in single PMC message
+ * adjusted to smaller value to be consistent with kernel driver
+ */
+#define NL60G_MAX_PMC_PAYLOAD	32720
+
+/*
+ * handle PMC GET_DATA/GET_DESC_DATA command
+ */
+static int
+nl60g_handle_pmc_data_command(struct nl60g_port *port,
+	struct nl_msg *msg, struct nl60g_subcmd_hdr *pmc_cmd)
+{
+	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
+	struct wil_pmc_reader_ops *reader;
+	void *reader_ctx;
+	struct nl60g_pmc_get_data *pmc_get_data_cmd;
+	struct nl_msg *creply = NULL;
+	struct nlattr *vendor_data, *data;
+	int rc = 0;
+	uint32_t num_bytes;
+	ssize_t toread, read, remaining, min_size;
+	bool is_get_data, more_data;
+
+	pmc_get_data_cmd = (struct nl60g_pmc_get_data *)pmc_cmd;
+	is_get_data = (pmc_cmd->cmd_id == NL_60G_PMC_GET_DATA);
+	num_bytes = pmc_get_data_cmd->num_bytes;
+
+	if (is_get_data) {
+		reader = &port->pmc_reader;
+		if (!port->pmc_reader_ctx)
+			rc = wil_pmc_alloc_pmc_reader(wil, reader,
+				&port->pmc_reader_ctx);
+		reader_ctx = port->pmc_reader_ctx;
+	} else {
+		reader = &port->pmcring_reader;
+		if (!port->pmcring_reader_ctx)
+			rc = wil_pmc_alloc_pmcring_reader(wil, reader,
+				&port->pmcring_reader_ctx);
+		reader_ctx = port->pmcring_reader_ctx;
+	}
+	if (rc)
+		return -nl_syserr2nlerr(rc);
+
+	remaining = reader->available(reader_ctx);
+	if (remaining < 0)
+		return -nl_syserr2nlerr(remaining);
+	min_size = reader->min_read_size(reader_ctx);
+	if (min_size < 0)
+		return -nl_syserr2nlerr(min_size);
+
+	creply = nl60g_alloc_vendor_reply(NL60G_MAX_PMC_PAYLOAD,
+		msg, &vendor_data);
+	if (!creply)
+		return -NLE_NOMEM;
+
+	if (num_bytes == 0) {
+		if (nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH,
+		                remaining)) {
+			RTE_LOG(ERR, PMD, "fail to write data length\n");
+			rc = -NLE_NOMEM;
+			goto out_free;
+		}
+		goto out_send;
+	}
+
+	if (num_bytes < min_size) {
+		if (nla_put_u32(creply,
+				QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
+				min_size)) {
+			RTE_LOG(ERR, PMD, "fail to write min data length\n");
+			rc = -NLE_NOMEM;
+			goto out_free;
+		}
+		/* when requesting to read < min_len, return error */
+		rc = -NLE_FAILURE;
+		goto out_send;
+	}
+
+	more_data = false;
+	toread = min_t(uint32_t, num_bytes, NL60G_MAX_PMC_PAYLOAD);
+	toread = reader->read_size(reader_ctx, toread);
+	if (toread < 0) {
+		RTE_LOG(ERR, PMD, "internal error read_size: %d\n", (int)toread);
+		rc = -NLE_NOMEM;
+		goto out_free;
+	}
+
+	data = nla_reserve(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA, toread);
+	if (!data) {
+		RTE_LOG(ERR, PMD, "fail to write data\n");
+		rc = -NLE_NOMEM;
+		goto out_free;
+	}
+	read = reader->read(reader_ctx, nla_data(data), toread);
+	if (toread != read) {
+		RTE_LOG(ERR, PMD, "internal error filling PMC data, toread %d read %d\n",
+			(int)toread, (int)read);
+		rc = -NLE_NOMEM;
+		goto out_free;
+	}
+
+	more_data = (read < remaining);
+	if (more_data &&
+	    nla_put_flag(creply, QCA_WLAN_VENDOR_ATTR_PMC_MORE_DATA)) {
+		RTE_LOG(ERR, PMD, "fail to write more data flag\n");
+		rc = -NLE_NOMEM;
+		goto out_free;
+	}
+
+out_send:
+	nla_nest_end(creply, vendor_data);
+	nl_send_auto(port->sk, creply);
+out_free:
+	nlmsg_free(creply);
+	return rc;
+}
+
+/*
+ * handle PMC command
+ */
+static int
+nl60g_handle_pmc_command(struct nl60g_port *port,
+	struct nl_msg *msg, struct nlattr **tb)
+{
+	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
+	struct pmc_ctx *pmc = &wil->pmc;
+	struct nl60g_subcmd_hdr *pmc_cmd;
+	struct nl60g_pmc_alloc *pmc_alloc_cmd;
+	uint32_t num_descs, payload_size;
+	int rc = 0;
+
+	pmc_cmd = (struct nl60g_subcmd_hdr *)nla_data(tb[WIL_ATTR_60G_BUF]);
+
+	switch (pmc_cmd->cmd_id) {
+	case NL_60G_PMC_ALLOC:
+		pmc_alloc_cmd = (struct nl60g_pmc_alloc *)pmc_cmd;
+		num_descs = pmc_alloc_cmd->num_desc;
+		payload_size = pmc_alloc_cmd->payload_size;
+		wil_pmc_alloc(wil, num_descs, payload_size);
+		if (pmc->last_cmd_status)
+			rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+		break;
+
+	case NL_60G_PMC_FREE:
+		wil_pmc_free(wil, true);
+		if (pmc->last_cmd_status)
+			rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+		wil_pmc_free_reader(port->pmc_reader_ctx);
+		port->pmc_reader_ctx = NULL;
+		wil_pmc_free_reader(port->pmcring_reader_ctx);
+		port->pmcring_reader_ctx = NULL;
+		break;
+
+	case NL_60G_PMC_GET_DATA:
+	case NL_60G_PMC_GET_DESC_DATA:
+		rc = nl60g_handle_pmc_data_command(port, msg, pmc_cmd);
+		break;
+	default:
+		RTE_LOG(ERR, PMD, "unknown PMC command: %d\n",
+			(int)pmc_cmd->cmd_id);
+		rc = -NLE_FAILURE;
+		break;
+	}
+
+	return rc;
+}
+
 /*
  * handles requests received over the local socket.
  * based on the wil_nl_60g_handle_cmd function in
@@ -810,7 +1071,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		break;
 	case NL_60G_CMD_GENERIC:
 		memcpy(&gen_force_wmi, nla_data(tb2[WIL_ATTR_60G_BUF]),
-		       sizeof(struct nl60g_generic));
+		       sizeof(struct nl60g_subcmd_hdr));
 
 		switch (gen_force_wmi.hdr.cmd_id) {
 		case NL_60G_GEN_FORCE_WMI_SEND:
@@ -850,7 +1111,8 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			       BIT(NL_60G_DRIVER_CAPA_WMI_OVER_NL) |
 			       BIT(NL_60G_DRIVER_CAPA_MEMIO) |
 			       BIT(NL_60G_DRIVER_CAPA_MEMIO_WRITE) |
-			       BIT(NL_60G_DRIVER_CAPA_GET_STA_INFO);
+			       BIT(NL_60G_DRIVER_CAPA_GET_STA_INFO) |
+			       BIT(NL_60G_DRIVER_CAPA_PMC_LEGACY_OVER_NL);
 			if (nla_put_u32(creply,
 			    QCA_WLAN_VENDOR_ATTR_DRIVER_CAPA,
 			    capa)) {
@@ -1062,6 +1324,9 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		nlmsg_free(creply);
 		break;
 	}
+	case NL_60G_CMD_PMC:
+		rc = nl60g_handle_pmc_command(port, msg, tb2);
+		break;
 	default:
 		rc = -NLE_INVAL;
 		wil_err(wil, "invalid nl_60g_cmd type %d", cmd_type);
@@ -1259,6 +1524,10 @@ nl60g_free_connection(struct nl60g_port *port)
 	port->exit_sockets[0] = -1;
 	close(port->exit_sockets[1]);
 	port->exit_sockets[1] = -1;
+	wil_pmc_free_reader(port->pmc_reader_ctx);
+	port->pmc_reader_ctx = NULL;
+	wil_pmc_free_reader(port->pmcring_reader_ctx);
+	port->pmcring_reader_ctx = NULL;
 }
 
 static void

@@ -812,6 +812,7 @@ struct pmc_ctx {
 	struct mutex		lock;
 	struct vring_tx_desc	*pring_va;
 	dma_addr_t		pring_pa;
+	dma_mem_t 		pring_dmah;
 	struct desc_alloc_info  *descriptors;
 	int			last_cmd_status;
 	int			num_descriptors;
@@ -1083,7 +1084,7 @@ struct wil6210_priv {
 	struct wil_platform_ops platform_ops;
 	bool keep_radio_on_during_sleep;
 
-	//struct pmc_ctx pmc;
+	struct pmc_ctx pmc;
 
 	u8 p2p_dev_started;
 

@@ -270,7 +270,10 @@ struct nl60g_state *nl60g_init(void)
 	nl60g->exit_sockets[0] = nl60g->exit_sockets[1] = -1;
 
 	for (i = 0; i < NL60G_MAX_PORTS; i++) {
-		nl60g->ports[i].fd = -1;
+		struct nl60g_port *port = &nl60g->ports[i];
+		port->fd = -1;
+		port->exit_sockets[0] = port->exit_sockets[1] = -1;
+		port->nl60g = nl60g;
 	}
 
 	pthread_mutex_init(&nl60g->ports_mutex, 0);
@@ -531,10 +534,9 @@ static struct nl_msg *nl60g_alloc_vendor_reply(int len, struct nl_msg *cmd,
 	return msg;
 }
 
-static void nl60g_send_60g_fw_state_evt(struct nl60g_state *nl60g, int index,
+static void nl60g_send_60g_fw_state_evt(struct nl60g_port *port,
 	enum wil_fw_state fw_state)
 {
-	struct nl60g_port *port = &nl60g->ports[index];
 	struct nl_msg *vendor_event = NULL;
 	struct nlattr *vendor_data = NULL;
 	struct nl60g_event *evt;
@@ -576,9 +578,9 @@ out:
 }
 
 static void nl60g_send_60g_wmi_evt(
-	struct nl60g_state *nl60g, int index, uint8_t *cmd, int len)
+	struct nl60g_port *port, uint8_t *cmd, int len)
 {
-	struct nl60g_port *port = &nl60g->ports[index];
+	struct nl60g_state *nl60g = port->nl60g;
 	struct wil6210_priv *wil = nl60g->wil;
 	struct nl_msg *vendor_event = NULL;
 	struct nlattr *vendor_data = NULL;
@@ -640,7 +642,7 @@ void nl60g_fw_state_evt(struct nl60g_state *nl60g,
 	if (!nl60g->wil)
 		goto out;
 	for (i = 0; i < NL60G_MAX_PORTS; i++)
-		nl60g_send_60g_fw_state_evt(nl60g, i, fw_state);
+		nl60g_send_60g_fw_state_evt(&nl60g->ports[i], fw_state);
 out:
 	pthread_mutex_unlock(&nl60g->ports_mutex);
 }
@@ -656,7 +658,7 @@ void nl60g_receive_wmi_evt(struct nl60g_state *nl60g, uint8_t *cmd, int len)
 	if (!nl60g->wil)
 		goto out;
 	for (i = 0; i < NL60G_MAX_PORTS; i++)
-		nl60g_send_60g_wmi_evt(nl60g, i, cmd, len);
+		nl60g_send_60g_wmi_evt(&nl60g->ports[i], cmd, len);
 out:
 	pthread_mutex_unlock(&nl60g->ports_mutex);
 }
@@ -748,8 +750,8 @@ static void nl60g_fill_sta_info_entry(struct wil6210_priv *wil,
  */
 static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 {
-	struct nl60g_state *nl60g = arg;
-	struct nl60g_port *port = &nl60g->ports[nl60g->read_port_index];
+	struct nl60g_port *port = arg;
+	struct nl60g_state *nl60g = port->nl60g;
 	struct wil6210_priv *wil = nl60g->wil;
 	struct nlattr *tb[NL80211_ATTR_MAX + 1];
 	struct nlattr *tb2[QCA_ATTR_WIL_MAX + 1];
@@ -804,8 +806,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		port->publish_nl_evt = (publish != 0);
 		RTE_LOG(INFO, PMD, "Publish wmi event %s\n", publish ?
 			"enabled" : "disabled");
-		nl60g_send_60g_fw_state_evt(nl60g, nl60g->read_port_index,
-			wil->fw_state);
+		nl60g_send_60g_fw_state_evt(port, wil->fw_state);
 		break;
 	case NL_60G_CMD_GENERIC:
 		memcpy(&gen_force_wmi, nla_data(tb2[WIL_ATTR_60G_BUF]),
@@ -1061,7 +1062,6 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		nlmsg_free(creply);
 		break;
 	}
-
 	default:
 		rc = -NLE_INVAL;
 		wil_err(wil, "invalid nl_60g_cmd type %d", cmd_type);
@@ -1071,11 +1071,73 @@ out:
 	return nl60g_send_reply_msg(port->sk, msg, rc);
 }
 
+static int
+nl60g_read_connection(struct nl60g_port *port)
+{
+	int rc;
+
+	if (!port->sk) {
+		return 0;
+	}
+
+	rc = nl_recvmsgs_report(port->sk, port->cb);
+	if (rc < 0)
+		RTE_LOG(ERR, PMD, "read error: %d\n", rc);
+
+	return rc;
+}
+
+static void *
+nl60g_req_worker_thread(void *arg)
+{
+	struct nl60g_port *port = arg;
+	struct nl60g_state *nl60g = port->nl60g;
+	struct pollfd pfd[2];
+	int rc;
+
+	memset(&pfd, 0, sizeof(pfd));
+	pfd[0].fd = port->fd;
+	pfd[0].events = POLLIN;
+	pfd[1].fd = port->exit_sockets[1];
+	pfd[1].events = POLLIN;
+
+	for (/*none*/; /*none*/; /*none*/) {
+		rc = poll(pfd, 2, 2000);
+		if (rc == 0)
+			continue;
+		if (rc < 0) {
+			if (errno == EINTR)
+				continue;
+			RTE_LOG(ERR, PMD, "poll error: %s\n", strerror(errno));
+			/* TODO should we exit? */
+			continue;
+		}
+
+		if (pfd[1].revents & POLLIN) {
+			RTE_LOG(INFO, PMD, "request thread exit by request\n");
+			break;
+		}
+
+		if (pfd[0].revents & POLLIN) {
+			rc = nl60g_read_connection(port);
+			if (rc <= 0) {
+				/* error or connection terminated */
+				break;
+			}
+		}
+
+	}
+
+	TEMP_FAILURE_RETRY(write(port->exit_sockets[1], "T", 1));
+	return NULL;
+}
+
 static void
 nl60g_accept_new_connection(struct nl60g_state *nl60g)
 {
-	int data_fd, index, i;
+	int data_fd, index, i, rc;
 	int blen = NL60G_MAX_MSG_SIZE;
+	struct nl60g_port *port = NULL;
 	bool success = false;
 
 	data_fd = accept(nl60g->fd, NULL, NULL);
@@ -1111,9 +1173,17 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 		return;
 	}
 
+	port = &nl60g->ports[index];
 	pthread_mutex_lock(&nl60g->ports_mutex);
-	nl60g->ports[index].cb = nl_cb_alloc(NL_CB_DEFAULT);
-	if (nl60g->ports[index].cb == NULL) {
+	rc = socketpair(AF_UNIX, SOCK_STREAM, 0, port->exit_sockets);
+	if (rc == -1) {
+		rc = errno;
+		RTE_LOG(ERR, PMD, "unable to create exit sockets: %s\n",
+			strerror(rc));
+		goto out;
+	}
+	port->cb = nl_cb_alloc(NL_CB_DEFAULT);
+	if (port->cb == NULL) {
 		RTE_LOG(ERR, PMD, "fail to alloc NL callback\n");
 		goto out;
 	}
@@ -1122,7 +1192,7 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 	nl_cb_overwrite_recv(nl60g->ports[index].cb, nl60g_recv_handler);
 	nl_cb_overwrite_send(nl60g->ports[index].cb, nl60g_send_handler);
 	nl_cb_set(nl60g->ports[index].cb, NL_CB_VALID, NL_CB_CUSTOM,
-		  nl60g_cmd_handler, nl60g);
+		  nl60g_cmd_handler, port);
 
 	nl60g->ports[index].sk = nl_socket_alloc_cb(nl60g->ports[index].cb);
 	if (nl60g->ports[index].sk == NULL) {
@@ -1138,25 +1208,36 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 
 	nl60g_set_local_sock_fd(nl60g->ports[index].sk, data_fd);
 	nl60g->ports[index].fd = data_fd;
+
+	rc = pthread_create(&port->req_thread, NULL,
+	    nl60g_req_worker_thread, port);
+	if (rc != 0) {
+		rc = errno;
+		RTE_LOG(ERR, PMD, "Unable to create request thread: %s\n",
+		    strerror(rc));
+		goto out;
+	}
+
 	RTE_LOG(DEBUG, PMD, "accept new connection data fd %d index %d\n", data_fd, index);
 	success = true;
+
 out:
 	if (!success) {
-		nlmsg_free(nl60g->ports[index].reply);
-		nl60g->ports[index].reply = NULL;
-		nl_socket_free(nl60g->ports[index].sk);
-		nl60g->ports[index].sk = NULL;
-		nl_cb_put(nl60g->ports[index].cb);
-		nl60g->ports[index].cb = NULL;
+		nlmsg_free(port->reply);
+		port->reply = NULL;
+		nl_socket_free(port->sk);
+		port->sk = NULL;
+		nl_cb_put(port->cb);
+		port->cb = NULL;
+		if (port->exit_sockets[0] >= 0) {
+			close(port->exit_sockets[0]);
+			close(port->exit_sockets[1]);
+			port->exit_sockets[0] = port->exit_sockets[1] = -1;
+		}
+		port->fd = -1;
 		close(data_fd);
 	}
 	pthread_mutex_unlock(&nl60g->ports_mutex);
-}
-
-static bool
-nl60g_is_port_connected(struct nl60g_state *nl60g, int index)
-{
-	return (nl60g->ports[index].fd >= 0);
 }
 
 /*
@@ -1164,10 +1245,8 @@ nl60g_is_port_connected(struct nl60g_state *nl60g, int index)
  * must be called with ports_mutex held
  */
 static void
-nl60g_free_connection(struct nl60g_state *nl60g, int index)
+nl60g_free_connection(struct nl60g_port *port)
 {
-	struct nl60g_port *port = &nl60g->ports[index];
-
 	nlmsg_free(port->reply);
 	port->reply = NULL;
 	nl_socket_free(port->sk);
@@ -1176,38 +1255,33 @@ nl60g_free_connection(struct nl60g_state *nl60g, int index)
 	port->cb = NULL;
 	close(port->fd);
 	port->fd = -1;
+	close(port->exit_sockets[0]);
+	port->exit_sockets[0] = -1;
+	close(port->exit_sockets[1]);
+	port->exit_sockets[1] = -1;
 }
 
 static void
-nl60g_close_connection(struct nl60g_state *nl60g, int index)
+nl60g_close_connection(struct nl60g_port *port)
 {
+	struct nl60g_state *nl60g = port->nl60g;
 	int i, j;
 
-	pthread_mutex_lock(&nl60g->ports_mutex);
-	RTE_LOG(INFO, PMD, "nl60g_close_connection, index %d fd %d\n",
-		index, nl60g->ports[index].fd);
-	if (nl60g->ports[index].fd == -1)
-		goto out;
-
-	nl60g_free_connection(nl60g, index);
-	/* compress the list of ports, it is required so it will
-	 * be in sync with the list of poll descriptors in the worker
+	/* perform some actions without the lock to avoid
+	 * delaying other operations too much (such as sending events).
+	 * nl60g_close_connection is only called from poll worker thread
+	 * so no risk that other thread will modify port fields
 	 */
-	for (i = 0, j = 0; i < NL60G_MAX_PORTS; i++) {
-		if (nl60g_is_port_connected(nl60g, i)) {
-			if (i != j)
-				nl60g->ports[j] = nl60g->ports[i];
-			j++;
-		}
-	}
-	for (i = j; i < NL60G_MAX_PORTS; i++) {
-		if (nl60g->ports[i].fd >= 0) {
-			/* the port was copied to lower index, clear it */
-			memset(&nl60g->ports[i], 0, sizeof(struct nl60g_port));
-			nl60g->ports[i].fd = -1;
-		}
-	}
-out:
+	if (port->fd == -1)
+		return;
+
+	TEMP_FAILURE_RETRY(write(port->exit_sockets[0], "T", 1));
+	pthread_join(port->req_thread, NULL);
+
+	pthread_mutex_lock(&nl60g->ports_mutex);
+	RTE_LOG(INFO, PMD, "nl60g_close_connection, fd %d\n", port->fd);
+
+	nl60g_free_connection(port);
 	pthread_mutex_unlock(&nl60g->ports_mutex);
 }
 
@@ -1216,31 +1290,8 @@ nl60g_close_all_connections(struct nl60g_state *nl60g)
 {
 	int i;
 
-	pthread_mutex_lock(&nl60g->ports_mutex);
-	for (i = 0; i < NL60G_MAX_PORTS; i++) {
-		if (nl60g->ports[i].fd >= 0)
-			nl60g_free_connection(nl60g, i);
-	}
-	pthread_mutex_unlock(&nl60g->ports_mutex);
-}
-
-
-static int
-nl60g_read_connection(struct nl60g_state *nl60g, int index)
-{
-	int rc;
-	struct nl60g_port *port = &nl60g->ports[index];
-
-	if (!port->sk) {
-		return 0;
-	}
-
-	nl60g->read_port_index = index;
-	rc = nl_recvmsgs_report(port->sk, port->cb);
-	if (rc < 0)
-		RTE_LOG(ERR, PMD, "read error: %d\n", rc);
-
-	return rc;
+	for (i = 0; i < NL60G_MAX_PORTS; i++)
+		nl60g_close_connection(&nl60g->ports[i]);
 }
 
 static void *
@@ -1262,12 +1313,9 @@ nl60g_poll_worker_thread(void *arg)
 		if (rebuild_poll) {
 			num_fd = 2;
 			for (i = 0; i < NL60G_MAX_PORTS; i++) {
-				/* the list is compressed so we can finish
-				 * when the first unused entry is found
-				 */
-				if (nl60g->ports[i].fd  < 0)
-					break;
-				pfd[num_fd].fd = nl60g->ports[i].fd;
+				if (nl60g->ports[i].exit_sockets[0]  < 0)
+					continue;
+				pfd[num_fd].fd = nl60g->ports[i].exit_sockets[0];
 				pfd[num_fd].events = POLLIN;
 				num_fd++;
 			}
@@ -1295,19 +1343,21 @@ nl60g_poll_worker_thread(void *arg)
 			rebuild_poll = true;
 		}
 
-		/* scan in reverse order to avoid skipping
-		 * entries because when connection is closed,
-		 * the list is compressed
-		 */
-		for (i = (num_fd - 1); i >= 2; i--) {
+		for (i = 2; i < num_fd; i++) {
 			if (pfd[i].revents & POLLIN) {
-				index = i - 2;
-				rc = nl60g_read_connection(nl60g, index);
-				if (rc <= 0) {
-					/* error or connection terminated */
-					nl60g_close_connection(nl60g, index);
-					rebuild_poll = true;
+				/* find out which port has this exit socket */
+				for (index = 0; index < NL60G_MAX_PORTS; index++) {
+					if (pfd[i].fd == nl60g->ports[index].
+					    exit_sockets[0])
+						break;
 				}
+				if (index >= NL60G_MAX_PORTS) {
+					RTE_LOG(ERR, PMD, "internal error, index %d not mapped for close\n",
+						i);
+					continue;
+				}
+				nl60g_close_connection(&nl60g->ports[index]);
+				rebuild_poll = true;
 			}
 		}
 	}

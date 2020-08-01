@@ -43,6 +43,10 @@ struct nl60g_port {
 	struct nl_cb *cb;
 	struct nl_sock *sk;
 	struct nl_msg *reply;
+	/* thread for processing requests on this socket */
+	pthread_t req_thread;
+	int exit_sockets[2];
+	struct nl60g_state *nl60g;
 };
 
 struct nl60g_state {

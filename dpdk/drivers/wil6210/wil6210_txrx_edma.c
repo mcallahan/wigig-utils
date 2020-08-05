@@ -1001,6 +1001,8 @@ skipping:
 		seg = rxdata->skb->userdata;
 		if (seg != NULL)
 			seg->next = skb;
+		else
+			rxdata->skb->next = skb;
 		/* Attempt to chain mbuf as the fragment */
 		rxdata->skb->nb_segs++;
 		rxdata->skb->pkt_len += dmalen;

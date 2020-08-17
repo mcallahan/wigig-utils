@@ -186,6 +186,8 @@ static int wil_ring_alloc_skb_edma(struct wil6210_priv *wil,
 		return -ENOMEM;
 	}
 
+	skb->userdata = NULL;
+
 	/**
 	 * Make sure that the network stack calculates checksum for packets
 	 * which failed the HW checksum calculation

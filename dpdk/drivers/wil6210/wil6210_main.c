@@ -1522,6 +1522,7 @@ static int wil_wait_for_fw_ready(struct wil6210_priv *wil)
 
 	if (0 == left) {
 		wil_err(wil, "Firmware not ready after %d ms\n", jiffies_to_msecs(to));
+		wil_fw_set_log_offset_entries(wil);
 		wil_fw_not_ready_logs(wil);
 		return -ETIME;
 	} else {

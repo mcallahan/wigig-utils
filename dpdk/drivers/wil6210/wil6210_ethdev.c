@@ -435,6 +435,12 @@ eth_dev_start(struct rte_eth_dev *dev)
 
 	wil = dev->data->dev_private;
 
+	/* Setup DBG log enable bitmask.
+	 * Note that in PUMA logs are configured at VPP init time,
+	 * and cannot be set dynamically.
+	 */
+	wil_set_log_dbg_mask(&wil->dbg_log_enable_mask);
+
 	/* Make sure there are no pending IRQs */
 	wil6210_clear_irq(wil);
 	rc = wil6210_init_irq(wil, 0);
@@ -451,12 +457,6 @@ eth_dev_start(struct rte_eth_dev *dev)
 
 	if (wil->fw_log_state || wil->ucode_log_state)
 		wil_fw_log_start_poll_worker(wil);
-
-	/* Setup DBG log enable bitmask.
-	 * Note that in PUMA logs are configured at VPP init time,
-	 * and cannot be set dynamically.
-	 */
-	wil_set_log_dbg_mask(&wil->dbg_log_enable_mask);
 
 	dev->rx_pkt_burst = wil6210_burst_rx;
 	dev->tx_pkt_burst = wil6210_burst_tx;

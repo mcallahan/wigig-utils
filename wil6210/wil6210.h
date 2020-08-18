@@ -1487,6 +1487,7 @@ int wmi_pcp_start(struct wil6210_vif *vif, int bi, u8 wmi_nettype, u8 chan,
 int wmi_pcp_stop(struct wil6210_vif *vif);
 int wmi_led_cfg(struct wil6210_priv *wil, bool enable);
 int wmi_abort_scan(struct wil6210_vif *vif);
+int wmi_set_non_commercial_use(struct wil6210_priv *wil);
 void wil_abort_scan(struct wil6210_vif *vif, bool sync);
 void wil_abort_scan_all_vifs(struct wil6210_priv *wil, bool sync);
 void wil6210_bus_request(struct wil6210_priv *wil, u32 kbps);

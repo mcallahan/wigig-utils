@@ -2066,6 +2066,11 @@ int __wil_up(struct wil6210_priv *wil)
 			return rc;
 		}
 	}
+	rc = wmi_set_non_commercial_use(wil);
+	if (rc) {
+		wil_err(wil, "wmi_set_non_commercial_use failed, rc %d\n", rc);
+		return rc;
+	}
 	return 0;
 }
 

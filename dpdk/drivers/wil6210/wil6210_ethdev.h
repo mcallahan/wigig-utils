@@ -1069,6 +1069,7 @@ struct wil6210_priv {
 	/* statistics */
 	atomic_t isr_count_rx, isr_count_tx;
 	u64 count_rx_burst_calls;
+	u64 count_rx_burst_full; /* if wil_rx_burst did dequeue a full quota */
 	u64 no_credits;
 	/* debugfs */
 	//struct dentry *debug;

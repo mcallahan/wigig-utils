@@ -95,6 +95,8 @@ static const struct rte_wil6210_xstats_name_off rte_stats_ul_strings[] = {
 static const struct rte_wil6210_xstats_name_off rte_port_stats_u64_strings[] = {
 	{ "rx_burst_calls",
 	  offsetof(struct wil6210_priv, count_rx_burst_calls) },
+	{ "rx_burst_full",
+	  offsetof(struct wil6210_priv, count_rx_burst_full) },
 	{ "no_credits",
 	  offsetof(struct wil6210_priv, no_credits) },
 #ifdef DEBUG_LATENCY
@@ -116,7 +118,6 @@ struct rte_wil6210_xstats_name_off rte_port_stats_u64_abs_strings[] = {
 #endif
 	/* only add u64's here */
 };
-
 
 
 /* Note: The stats below are not monotonic.  Since pktgen only displays the
@@ -977,6 +978,7 @@ eth_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstat *xstats,
 		wil->wil_rx_handler_time_nano = 0;
 #endif
 		wil->count_rx_burst_calls = 0;
+		wil->count_rx_burst_full = 0;
 		wil->no_credits = 0;
 	}
 	return count;

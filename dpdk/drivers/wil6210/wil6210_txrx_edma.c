@@ -1175,6 +1175,8 @@ uint16_t wil_rx_burst(struct wil6210_priv *wil, struct rte_mbuf **rx_pkts,
 	wil->last_burst_rx_nano = rte_get_timer_cycles() * wil->nano_per_cycle;
 	wil->wil_rx_handler_time_nano += wil->last_burst_rx_nano - start;
 #endif
+	if (nb_done == nb_pkts)
+		wil->count_rx_burst_full++;
 	return nb_done;
 }
 

@@ -473,6 +473,8 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_SW_TX_REQ_EXT_CMDID";
 	case WMI_INTERNAL_FW_IOCTL_CMDID:
 		return "WMI_INTERNAL_FW_IOCTL_CMD";
+	case WMI_ALLOW_NON_COMMERCIAL_USE_CMDID:
+		return "WMI_ALLOW_NON_COMMERCIAL_USE_CMD";
 	default:
 		return "Untracked CMD";
 	}
@@ -3415,6 +3417,20 @@ int wmi_new_sta(struct wil6210_vif *vif, const u8 *mac, u8 aid)
 	rc = wmi_send(wil, WMI_NEW_STA_CMDID, vif->mid, &cmd, sizeof(cmd));
 	if (rc)
 		wil_err(wil, "Failed to send new sta (%d)\n", rc);
+
+	return rc;
+}
+
+int wmi_set_non_commercial_use(struct wil6210_priv *wil)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	int rc;
+
+	wil_dbg_wmi(wil, "sending WMI_ALLOW_NON_COMMERCIAL_USE_CMDID\n");
+
+	rc = wmi_send(wil, WMI_ALLOW_NON_COMMERCIAL_USE_CMDID, vif->mid, NULL, 0);
+	if (rc)
+		wil_err(wil, "Failed to set non commercial use (%d)\n", rc);
 
 	return rc;
 }

@@ -2085,6 +2085,14 @@ int __wil_up(struct wil6210_priv *wil)
 		}
 	}
 #endif
+
+#ifdef TG_ENABLE_COMPAT_DPDK_ES
+	rc = wmi_set_non_commercial_use(wil);
+	if (rc) {
+		wil_err(wil, "wmi_set_non_commercial_use failed, rc %d\n", rc);
+		return rc;
+	}
+#endif
 	return 0;
 }
 

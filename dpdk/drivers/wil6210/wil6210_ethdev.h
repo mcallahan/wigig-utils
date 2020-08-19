@@ -784,10 +784,6 @@ struct wil_sta_info {
 	int link_id;
 	int tx_link;
 	int rx_link;
-	/* for queue stats */
-	u64 tot_arrived_bytes;
-	u64 avg_arrived_bytes_per_ms;
-	u64 tlast;
 };
 
 enum {

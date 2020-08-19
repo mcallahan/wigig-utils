@@ -99,8 +99,6 @@ wil_send_queue_stats_ioctl_async(struct wil6210_priv *wil, u32 *bytes_pending,
 	struct fb_tg_if_event *ioctl;
 	size_t stats_len, ioctl_len;
 	struct wil_sta_info *sta;
-	u64 tot_arrived_bytes, arrived_bytes, arrived_bytes_per_ms, curr_time_ms,
-		delta_ms;
 	u32 tot_bytes_pending;
 
 	for (i = 0, num_links = 0; i < WIL6210_MAX_TX_RINGS; i++) {
@@ -112,65 +110,9 @@ wil_send_queue_stats_ioctl_async(struct wil6210_priv *wil, u32 *bytes_pending,
 		tot_bytes_pending = bytes_pending[i] +
 				    atomic_read(&sta->stats.tx_pend_bytes);
 
-		/*
-		 * TODO: Remove the below arrival rate calculations and only use
-		 * arrival rate that gets passed in, which will be calculated from
-		 * the point we enqueue into vpp
-		 */
-
-		/* compute time interval since last stats sample for this link */
-		curr_time_ms = rte_get_timer_cycles() * wil->nano_per_cycle / 1000000;
-		delta_ms = curr_time_ms - sta->tlast;
-		if (delta_ms == 0)
-			delta_ms == 1;
-		sta->tlast = curr_time_ms;
-
-		/* calculate instantaneous arrival rate */
-		tot_arrived_bytes = sta->stats.tx_bytes + tot_bytes_pending;
-		if (sta->tot_arrived_bytes > tot_arrived_bytes) {
-			/* stats were reset */
-			sta->avg_arrived_bytes_per_ms = 0;
-			arrived_bytes = tot_arrived_bytes;
-		} else {
-			/* no re-association, no stats hiccups */
-			arrived_bytes =
-				tot_arrived_bytes - sta->tot_arrived_bytes;
-		}
-		sta->tot_arrived_bytes = tot_arrived_bytes;
-		arrived_bytes_per_ms =
-			(arrived_bytes + (delta_ms / 2)) / delta_ms;
-
-		/*
-		 * Moving average formula for updating the arrival rate:
-		 * new-average-arrival-rate = (1/8) instantaneous-arrival-rate +
-		 *  (7/8) old-average-arrival-rate
-		 */
-		sta->avg_arrived_bytes_per_ms =
-			(arrived_bytes_per_ms >> 3) +
-			((7 * sta->avg_arrived_bytes_per_ms) >> 3);
-
-		/*
-		 * ensure consistent report of "zero arrival rate" regardless
-		 * of the averaging method, sampling rate, or the units used
-		 * for the arrival rate
-		 */
-		if (sta->avg_arrived_bytes_per_ms != 0) {
-			/* updated arrival rate moving average != 0 */
-			queue_stats[num_links].arrival_rate =
-				sta->avg_arrived_bytes_per_ms;
-		} else if (arrived_bytes_per_ms != 0) {
-			/* instantaneous arrival rate != 0*/
-			queue_stats[num_links].arrival_rate =
-				arrived_bytes_per_ms;
-		} else if (arrived_bytes != 0) {
-			/* received some bytes */
-			queue_stats[num_links].arrival_rate = 1;
-		} else {
-			/* average arrival rate == 0 and no bytes received */
-			queue_stats[num_links].arrival_rate = 0;
-		}
-
 		queue_stats[num_links].bytes_pending = tot_bytes_pending;
+		queue_stats[num_links].arrival_rate = arrival_rate[i];
+
 		memcpy(queue_stats[num_links].dst_mac_addr, sta->addr,
 			sizeof(queue_stats[num_links].dst_mac_addr));
 		num_links++;

@@ -213,8 +213,7 @@ void wil_api_fw_recovery(struct wil6210_priv *wil)
 
 	if (!client_ops || !client_ops->wigig_recovery) {
 		wil_err(wil,
-			"No firmware recovery op implemented by client, asserting...\n");
-		BUG_ON(1);
+			"No firmware recovery op implemented by client\n");
 		return;
 	}
 

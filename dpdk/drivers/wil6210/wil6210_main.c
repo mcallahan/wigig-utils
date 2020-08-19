@@ -180,6 +180,64 @@ void wil_ring_fini_tx(struct wil6210_priv *wil, int id)
 	wil->txrx_ops.ring_fini_tx(wil, ring);
 }
 
+/*
+ * Macros from linux/pci_regs.h and drivers/pci/pci.h
+ */
+#define PCI_CAPABILITY_LIST 0x34   /* offset of first entry in pci cap list */
+#define PCI_CAP_ID_EXP 0x10        /* PCI Express capability list ID */
+#define PCI_FIND_CAP_TTL 48        /* TTL to avoid infinite loop search */
+#define PCI_EXP_LNKSTA 18          /* PCIe Link Status capability register */
+#define PCI_EXP_LNKSTA_CLS 0x000f  /* Current Link Speed */
+#define PCI_EXP_LNKSTA_NLW 0x03f0  /* Negotiated Link Width */
+#define PCI_EXP_LNKSTA_NLW_SHIFT 4 /* start of NLW mask in link status */
+
+static int wil_find_pcie_cap(struct rte_pci_device *dev, uint8_t pos)
+{
+	int ret, ttl = PCI_FIND_CAP_TTL;
+	uint8_t id;
+	uint16_t ent;
+
+	ret = rte_pci_read_config(dev, &pos, sizeof(pos), pos);
+	if (ret < sizeof(pos))
+		return 0;
+
+	while (ttl--) {
+		if (pos < 0x40)
+		    break;
+
+		pos &= ~3;
+		ret = rte_pci_read_config(dev, &ent, sizeof(ent), pos);
+		if (ret < sizeof(ent))
+		    return 0;
+
+		id = ent & 0xff;
+		if (id == 0xff)
+		    break;
+		if (id == PCI_CAP_ID_EXP)
+		    return pos;
+		pos = (ent >> 8);
+	}
+	return 0;
+}
+
+static int wil_get_pcie_params(struct wil6210_priv *wil, uint16_t *val)
+{
+	int ret, pos;
+	struct rte_pci_device *dev = wil->pdev;
+
+	pos = wil_find_pcie_cap(dev, PCI_CAPABILITY_LIST);
+	if (pos == 0) {
+		wil_err(wil, "Failed to get pcie capability offset\n");
+		return -1;
+	}
+
+	ret = rte_pci_read_config(dev, val, sizeof(*val), pos + PCI_EXP_LNKSTA);
+	if (ret < sizeof(*val)) {
+		wil_err(wil, "Failed to read pcie capability link status\n");
+		return -1;
+	}
+	return 0;
+}
 
 #ifndef WIL6210_PMD
 static bool wil_vif_is_connected(struct wil6210_priv *wil, u8 mid)
@@ -796,6 +854,7 @@ int wil_priv_init(struct wil6210_priv *wil)
 
 	wil->mtu_max = TXRX_BUF_LEN_DEFAULT - WIL_MAX_MPDU_OVERHEAD;
 	wil->crash_on_fw_err = true;
+	wil->p2mp_capable = true;
 
 	wil->nl60g = nl60g_init();
 	if (!wil->nl60g)
@@ -1922,6 +1981,8 @@ int __wil_up(struct wil6210_priv *wil)
 	struct net_device *ndev = wil->main_ndev;
 	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 	int rc;
+	uint16_t val;
+	int gen, lanes;
 
 	WARN_ON(!mutex_is_locked(&wil->mutex));
 
@@ -1972,8 +2033,8 @@ int __wil_up(struct wil6210_priv *wil)
 	/* MAC address - pre-requisite for other commands */
 	wmi_set_mac_address(wil, ndev->dev_addr);
 
-	wil_dbg_misc(wil, "NAPI enable\n");
 #ifndef WIL6210_PMD
+	wil_dbg_misc(wil, "NAPI enable\n");
 	napi_enable(&wil->napi_rx);
 	napi_enable(&wil->napi_tx);
 	set_bit(wil_status_napi_en, wil->status);
@@ -1981,6 +2042,27 @@ int __wil_up(struct wil6210_priv *wil)
 
 	wil6210_bus_request(wil, WIL_DEFAULT_BUS_REQUEST_KBPS);
 
+#ifdef TG_ENABLE_COMPAT_CSU
+	wil_dbg_misc(wil, "p2mp_capable %d\n", wil->p2mp_capable);
+	if (wil->p2mp_capable) {
+		/* Make sure this is Last WMI Command to send */
+		/* get pcie information */
+		rc = wil_get_pcie_params(wil, &val);
+		if (rc) {
+			wil_err(wil, "Failed to get PCIe capability information\n");
+			return rc;
+		}
+		gen = val & PCI_EXP_LNKSTA_CLS;
+		lanes = (val & PCI_EXP_LNKSTA_NLW) >> PCI_EXP_LNKSTA_NLW_SHIFT;
+		wil_dbg_misc(wil, "Read PCIe params gen %d lanes %d\n", gen, lanes);
+		/* send pcie config params */
+		rc = wmi_set_pcie_config_params(wil, gen, lanes);
+		if (rc) {
+			wil_err(wil, "wmi_set_pcie_config_params failed, rc %d\n", rc);
+			return rc;
+		}
+	}
+#endif
 	return 0;
 }
 

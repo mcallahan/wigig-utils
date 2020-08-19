@@ -1199,6 +1199,7 @@ struct wil6210_priv {
 	bool crash_on_fw_err;
 	bool no_fw_recovery;
 	int fw_log_level;
+	bool p2mp_capable;
 
 	size_t fw_log_offset;
 	size_t fw_log_buf_entries;
@@ -1539,6 +1540,7 @@ void wil_cfg80211_deinit(struct wil6210_priv *wil);
 void wil_p2p_wdev_free(struct wil6210_priv *wil);
 
 int wmi_set_mac_address(struct wil6210_priv *wil, void *addr);
+int wmi_set_pcie_config_params(struct wil6210_priv *wil, int gen, int lanes);
 int wmi_pcp_start(struct wil6210_vif *vif, int bi, u8 wmi_nettype, u8 chan,
 		  u8 hidden_ssid, u8 is_go);
 int wmi_pcp_stop(struct wil6210_vif *vif);

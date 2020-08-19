@@ -101,6 +101,7 @@ MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 #define WIL_FW_LOG_LEVEL_ARG "fw-log-level"
 #define WIL_NO_FW_RECOVERY_ARG "no-fw-recovery"
 #define WIL_MTU_MAX_ARG "mtu-max"
+#define WIL_P2MP_CAPABLE_ARG "p2mp-capable"
 
 static const char *const devarg_keys[] = {
 	WIL_MAC_ADDR_ARG,
@@ -114,6 +115,7 @@ static const char *const devarg_keys[] = {
 	WIL_FW_LOG_LEVEL_ARG,
 	WIL_NO_FW_RECOVERY_ARG,
 	WIL_MTU_MAX_ARG,
+	WIL_P2MP_CAPABLE_ARG,
 	NULL /* last key must be NULL */
 };
 
@@ -139,6 +141,8 @@ static int wil_set_no_fw_recovery(const char *key __rte_unused,
 				  const char *value, void *arg);
 static int wil_set_mtu_max(const char *key __rte_unused,
 			   const char *value, void *arg);
+static int wil_set_p2mp_capable(const char *key __rte_unused,
+				  const char *value, void *arg);
 
 static const arg_handler_t devarg_handlers[] = {
 	&wil_set_mac_devarg,     &wil_set_fw_core_dump_path,
@@ -146,7 +150,7 @@ static const arg_handler_t devarg_handlers[] = {
 	&wil_use_opaque_log,     &wil_set_crash_on_fw_err,
 	&wil_set_ucode_log_path, &wil_set_ucode_str_path,
 	&wil_set_fw_log_level,   &wil_set_no_fw_recovery,
-	&wil_set_mtu_max,
+	&wil_set_mtu_max,        &wil_set_p2mp_capable,
 };
 
 static
@@ -488,6 +492,22 @@ static int wil_set_mtu_max(const char *key __rte_unused,
 
 	wil->mtu_max = val;
 	return 0;
+}
+
+static int
+wil_set_p2mp_capable(const char *key __rte_unused, const char *value,
+    void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+
+	if (strcmp(value, "0") == 0) {
+		wil->p2mp_capable = false;
+		return 0;
+	} else if (strcmp(value, "1") == 0) {
+		wil->p2mp_capable = true;
+		return 0;
+	}
+	return 1;
 }
 
 static void wil_process_devargs(struct rte_eth_dev *eth_dev)

@@ -371,6 +371,8 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_ECHO_CMD";
 	case WMI_SET_MAC_ADDRESS_CMDID:
 		return "WMI_SET_MAC_ADDRESS_CMD";
+	case WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID:
+		return "WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMD";
 	case WMI_LED_CFG_CMDID:
 		return "WMI_LED_CFG_CMD";
 	case WMI_PCP_START_CMDID:
@@ -2494,6 +2496,20 @@ int wmi_set_mac_address(struct wil6210_priv *wil, void *addr)
 	wil_dbg_wmi(wil, "Set MAC %s\n", mac_to_str(addr, macstr));
 
 	return wmi_send(wil, WMI_SET_MAC_ADDRESS_CMDID, vif->mid,
+			&cmd, sizeof(cmd));
+}
+
+int wmi_set_pcie_config_params(struct wil6210_priv *wil, int gen, int lanes)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct wmi_set_pcie_lane_count_cmd cmd;
+
+	cmd.gen = gen;
+	cmd.lane_count = lanes;
+
+	wil_dbg_wmi(wil, "Set PCIe lane count: %d, gen: %d\n", lanes, gen);
+
+	return wmi_send(wil, WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID, vif->mid,
 			&cmd, sizeof(cmd));
 }
 

@@ -1718,6 +1718,7 @@ void wil_api_link_up(struct wil6210_priv *wil, unsigned int qid,
 void wil_api_link_down(struct wil6210_priv *wil, unsigned int qid,
 		       u8 addr[ETH_ALEN]);
 void wil_api_fw_recovery(struct wil6210_priv *wil);
+void wil_api_wigig_down(struct wil6210_priv *wil);
 
 int wil_send_queue_stats_ioctl_async(struct wil6210_priv *wil,
 				     u32 *bytes_pending, u32 *arrival_rate,

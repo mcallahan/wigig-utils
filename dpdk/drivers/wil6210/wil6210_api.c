@@ -205,6 +205,7 @@ void wil_api_fw_recovery(struct wil6210_priv *wil)
 
 	if (wil->no_fw_recovery) {
 		wil_info(wil, "FW recovery cancelled, no_fw_recovery\n");
+		wil_api_wigig_down(wil);
 		return;
 	}
 
@@ -220,6 +221,22 @@ void wil_api_fw_recovery(struct wil6210_priv *wil)
 	data.port_id = wil->port_id;
 	/* client is expected to stop and restart device to reset fw */
 	client_ops->wigig_recovery(&data);
+}
+
+void wil_api_wigig_down(struct wil6210_priv *wil)
+{
+	struct rte_wigig_recovery_info data;
+	struct rte_wigig_client_ops *client_ops;
+
+	client_ops = wil->api_priv;
+	if (!client_ops || !client_ops->wigig_down) {
+		wil_err(wil, "No wigig down op implemented by client\n");
+		return;
+	}
+
+	data.port_id = wil->port_id;
+	/* tell client that wigig device is down */
+	client_ops->wigig_down(&data);
 }
 
 const struct rte_wigig_ops *

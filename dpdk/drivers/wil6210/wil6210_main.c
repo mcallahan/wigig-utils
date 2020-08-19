@@ -596,7 +596,6 @@ bool wil_is_recovery_blocked(struct wil6210_priv *wil)
 
 void wil_fw_recovery(struct wil6210_priv *wil)
 {
-	(void) wil_wait_for_recovery;
 #ifndef WIL6210_PMD
 	struct net_device *ndev = wil->main_ndev;
 	struct wireless_dev *wdev;
@@ -656,6 +655,30 @@ void wil_fw_recovery(struct wil6210_priv *wil)
 
 	mutex_unlock(&wil->mutex);
 	rtnl_unlock();
+#else
+	unsigned long curr_time_ms =
+		rte_get_timer_cycles() * wil->nano_per_cycle / 1000000;
+
+	/* increment @recovery_count if less than WIL6210_FW_RECOVERY_TO
+	 * passed since last recovery attempt
+	 */
+	if (curr_time_ms < wil->last_fw_recovery + WIL6210_FW_RECOVERY_TO)
+		wil->recovery_count++;
+	else
+		wil->recovery_count = 1; /* fw was alive for a long time */
+
+	if (wil->recovery_count > WIL6210_FW_RECOVERY_RETRIES) {
+		wil_err(wil, "too many recovery attempts (%d), giving up\n",
+			wil->recovery_count);
+		return;
+	}
+
+	wil->last_fw_recovery = curr_time_ms;
+
+	wil_info(wil, "fw error recovery requested (try %d)...\n",
+		 wil->recovery_count);
+
+	wil_api_fw_recovery(wil);
 #endif
 }
 
@@ -681,8 +704,7 @@ static void wil_fw_error_worker(struct work_struct *work)
 		wil_nl_60g_fw_state_change(wil,
 					   WIL_FW_STATE_ERROR_BEFORE_READY);
 
-	// wil_fw_recovery(wil);
-	wil_api_fw_recovery(wil);
+	wil_fw_recovery(wil);
 }
 
 static int wil_find_free_ring(struct wil6210_priv *wil)

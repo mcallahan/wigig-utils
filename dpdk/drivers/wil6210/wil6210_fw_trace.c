@@ -21,6 +21,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <poll.h>
+#include <sys/stat.h>
 
 #define WIL_FW_STR_BIN_FILE "fw_image_trace_string_load.bin"
 #define WIL_UCODE_STR_BIN_FILE "ucode_image_trace_string_load.bin"
@@ -100,6 +101,7 @@ struct wil_fw_log_state {
 	char str_path[WIL_FW_FILE_PATH_BUFSZ];
 	wil_log_t log_type;
 	FILE *fp;
+	ino_t log_file_inode;
 };
 
 enum { wil_fw_str_mask = 0xFFFFF };
@@ -1557,6 +1559,7 @@ static int wil_fw_log_poll(struct wil6210_priv *wil)
 	int i, rc;
 	struct wil_fw_log_state *log_states[2];
 	struct wil_fw_log_state *s;
+	struct stat st;
 
 	log_states[0] = wil->fw_log_state;
 	log_states[1] = wil->ucode_log_state;
@@ -1578,6 +1581,18 @@ static int wil_fw_log_poll(struct wil6210_priv *wil)
 			if (wil->opaque_log) {
 				wil_fw_copy_opaque_log(s, s->fp);
 			} else {
+				if (stat(s->log_path, &st) || st.st_ino != s->log_file_inode) {
+					/* log file gone, write to new file */
+					fclose(s->fp);
+					s->fp = fopen(s->log_path, "w+");
+					if (!s->fp || stat(s->log_path, &st)) {
+						wil_err(wil,
+							"Error creating polling log file %s\n",
+							s->log_path);
+						return 1;
+					}
+					s->log_file_inode = st.st_ino;
+				}
 				wil_fw_do_parse(s, s->fp);
 			}
 			return 0;
@@ -1595,9 +1610,9 @@ static int wil_fw_log_poll(struct wil6210_priv *wil)
 static void *wil_fw_log_poll_worker_thread(void *arg)
 {
 	struct wil6210_priv *wil = arg;
-	FILE *fp[2];
 	struct wil_fw_log_state *log_states[2];
 	struct wil_fw_log_state *s;
+	struct stat st;
 	int i;
 
 	log_states[0] = wil->fw_log_state;
@@ -1624,11 +1639,13 @@ static void *wil_fw_log_poll_worker_thread(void *arg)
 			/* human readable logs, just append to previous logs */
 			s->fp = fopen(s->log_path, "a+");
 		}
-		if (!fp) {
+
+		if (!s->fp || stat(s->log_path, &st)) {
 			wil_err(wil, "Error creating polling log file %s\n",
 				s->log_path);
 			return NULL;
 		}
+		s->log_file_inode = st.st_ino;
 
 		wil_info(wil,
 			"Writing to polling log file %s for %s logs, opaque: %d\n",

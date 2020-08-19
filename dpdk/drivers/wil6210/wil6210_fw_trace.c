@@ -92,6 +92,7 @@ struct wil_fw_log_state {
 	u32 rptr;
 	u32 rptr_param_last;
 	u32 wptr;
+	const char *modules[16];
 
 	size_t log_offset;
 	size_t log_buf_entries;
@@ -114,8 +115,6 @@ static const char *const levels[] = {
 };
 
 #define WIL_FW_MAX_PARAMS (7)
-
-static const char *modules[16];
 
 static inline size_t wil_fw_log_size(size_t entry_num)
 {
@@ -315,7 +314,7 @@ static void wil_fw_do_parse(struct wil_fw_log_state *s, FILE *f)
 		snprintf(s->module_string, sizeof(s->module_string),
 			 "%s[%6u/%6u] %9s %s : ",
 			 s->timestamp, s->rptr, s->wptr,
-			 modules[evt.hdr.module],
+			 s->modules[evt.hdr.module],
 			 levels[evt.hdr.level]);
 		fmt = s->str_buf + strring_offset;
 		params_dwords = evt.hdr.params_dwords_lsb << 0;
@@ -1325,10 +1324,10 @@ wil_fw_start_log(struct wil_fw_log_state *s, FILE *fp, char *fw_core_dump_path)
 
 	fprintf(fp, "  wptr = %u rptr = %u\n", s->wptr, s->rptr);
 	for (i = 0; i < 16; i++, mod = wil_fw_next_mod(mod)) {
-		modules[i] = mod;
+		s->modules[i] = mod;
 		struct wil_fw_module_level_enable *m = &h->module_level_enable[i];
 
-		fprintf(fp, "  %s[%2d] : %s%s%s%s%s\n", modules[i], i,
+		fprintf(fp, "  %s[%2d] : %s%s%s%s%s\n", s->modules[i], i,
 		       m->error_level_enable ? "E" : " ",
 		       m->warn_level_enable ? "W" : " ",
 		       m->info_level_enable ? "I" : " ",

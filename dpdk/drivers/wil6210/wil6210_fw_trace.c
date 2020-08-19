@@ -26,6 +26,8 @@
 #define WIL_FW_STR_BIN_FILE "fw_image_trace_string_load.bin"
 #define WIL_UCODE_STR_BIN_FILE "ucode_image_trace_string_load.bin"
 
+#define WIL_FW_LOG_POLL_INTERVAL_MS 100
+
 /* Little Endian formatted structure in device memory */
 struct wil_fw_module_level_enable {
 	uint error_level_enable : 1;
@@ -1568,8 +1570,8 @@ static int wil_fw_log_poll(struct wil6210_priv *wil)
 	pfd.fd = wil->log_pipe[0];
 	pfd.events = POLLIN;
 
-	/* if no shutdown from pipe before timeout, read log (every 1 second) */
-	rc = poll(&pfd, 1, 1000);
+	/* if no shutdown from pipe before timeout, read log */
+	rc = poll(&pfd, 1, WIL_FW_LOG_POLL_INTERVAL_MS);
 	if (rc <= 0) {
 		for (i = 0; i < 2; i++) {
 			s = log_states[i];

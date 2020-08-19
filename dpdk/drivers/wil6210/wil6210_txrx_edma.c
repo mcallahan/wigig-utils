@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
- * Copyright (c) 2019, Facebook, Inc. All rights reserved.
+ * Copyright (c) 2019-2020, Facebook, Inc. All rights reserved.
  */
 
 #include "wil6210_ethdev.h"

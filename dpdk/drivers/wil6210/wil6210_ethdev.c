@@ -3,6 +3,7 @@
  *
  *   Copyright (C) IGEL Co.,Ltd.
  *   All rights reserved.
+ *   Copyright (C) 2019-2020, Facebook, Inc. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions

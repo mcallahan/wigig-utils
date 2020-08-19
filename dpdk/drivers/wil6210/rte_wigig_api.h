@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: BSD-3-Clause
- * Copyright(c) 2018 Facebook Inc.
+/* SPDX-License-Identifier: ISC
+ * Copyright (c) 2018-2020, Facebook, Inc. All rights reserved.
  */
 
 #ifndef _RTE_WIGIG_API_H_

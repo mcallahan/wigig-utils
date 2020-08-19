@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: ISC
+ * Copyright (c) 2019-2020, Facebook, Inc. All rights reserved.
+ */
+
 #ifndef DPDK_DHD_CTR_H
 #define DPDK_DHD_CTR_H
 

@@ -41,7 +41,7 @@ rte_pmd_wil6210 = static_library('rte_pmd_wil6210',
 		'-Wno-sign-compare'
 	],
 	include_directories: include_directories('wil6210', 'dpdk-dhd-ctrl', '../../modules/dpdk-dhd'),
-	dependencies: dependency('libnl-3.0'),
+	dependencies: [ dependency('libnl-3.0'), dependency('libnl-genl-3.0') ],
 	link_args: '--version-script=rte_pmd_wil6210_version.map',
 	install: true
 )

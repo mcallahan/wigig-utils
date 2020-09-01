@@ -1521,9 +1521,7 @@ static int wil_wait_for_fw_ready(struct wil6210_priv *wil)
 
 	if (0 == left) {
 		wil_err(wil, "Firmware not ready after %d ms\n", jiffies_to_msecs(to));
-		up_write(&wil->mem_lock);
 		wil_fw_not_ready_logs(wil);
-		down_write(&wil->mem_lock);
 		return -ETIME;
 	} else {
 		wil_info(wil, "FW ready after %d ms. HW version 0x%08x\n",
@@ -1732,6 +1730,8 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 	/* Disable device led before reset*/
 	wmi_led_cfg(wil, false);
 
+	down_write(&wil->mem_lock);
+
 	/* prevent NAPI from being scheduled and prevent wmi commands */
 	// TODO: check for async wmi call timeout
 	mutex_lock(&wil->wmi_mutex);
@@ -1799,6 +1799,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 		if  (wil->secured_boot) {
 			wil_err(wil, "secured boot is not supported\n");
 			free(rfbb_board_file);
+			up_write(&wil->mem_lock);
 			return -ENOTSUPP;
 		}
 
@@ -1841,6 +1842,8 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 
 	clear_bit(wil_status_resetting, wil->status);
 
+	up_write(&wil->mem_lock);
+
 	if (load_fw) {
 		wil_unmask_irq(wil);
 
@@ -1856,10 +1859,8 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 			return rc;
 		}
 
-		up_write(&wil->mem_lock);
 		wil_fw_set_log_offset_entries(wil);
 		wil_fw_set_log_level(wil);
-		down_write(&wil->mem_lock);
 
 		wil->txrx_ops.configure_interrupt_moderation(wil);
 
@@ -1896,6 +1897,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 
 out:
 	free(rfbb_board_file);
+	up_write(&wil->mem_lock);
 	clear_bit(wil_status_resetting, wil->status);
 	return rc;
 }
@@ -1921,9 +1923,7 @@ int __wil_up(struct wil6210_priv *wil)
 
 	WARN_ON(!mutex_is_locked(&wil->mutex));
 
-	down_write(&wil->mem_lock);
 	rc = wil_reset(wil, true);
-	up_write(&wil->mem_lock);
 	if (rc)
 		return rc;
 
@@ -2022,9 +2022,7 @@ int __wil_down(struct wil6210_priv *wil)
 	wil_abort_scan_all_vifs(wil, false);
 	mutex_unlock(&wil->vif_mutex);
 
-	down_write(&wil->mem_lock);
 	rc = wil_reset(wil, false);
-	up_write(&wil->mem_lock);
 
 	return rc;
 }

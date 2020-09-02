@@ -1672,6 +1672,16 @@ nl60g_poll_worker_thread(void *arg)
 	return NULL;
 }
 
+static void
+nl60g_stop_poll_worker(struct nl60g_state *nl60g)
+{
+	TEMP_FAILURE_RETRY(write(nl60g->exit_sockets[0], "T", 1));
+	pthread_join(nl60g->poll_thread, NULL);
+	close(nl60g->exit_sockets[0]);
+	close(nl60g->exit_sockets[1]);
+	nl60g->exit_sockets[0] = nl60g->exit_sockets[1] = -1;
+}
+
 static int
 nl60g_start_poll_worker(struct nl60g_state *nl60g)
 {
@@ -1696,23 +1706,23 @@ nl60g_start_poll_worker(struct nl60g_state *nl60g)
 		goto out;
 	}
 
-	/* TODO should we set affinity to the VPP master lcore? */
+	/* set affinity to the VPP master lcore */
+	CPU_ZERO(&cpuset);
+	CPU_SET(rte_get_master_lcore(), &cpuset);
+	rc = pthread_setaffinity_np(nl60g->poll_thread, sizeof(cpuset),
+		&cpuset);
+	if (rc != 0) {
+		RTE_LOG(ERR, PMD, "Unable to set poller thread affinity: %s\n",
+			strerror(errno));
+		nl60g_stop_poll_worker(nl60g);
+		return rc;
+	}
 
 	/* This function is free to fail */
 	(void)rte_thread_setname(nl60g->poll_thread, "nl60g-poll");
 
 out:
 	return rc;
-}
-
-static void
-nl60g_stop_poll_worker(struct nl60g_state *nl60g)
-{
-	TEMP_FAILURE_RETRY(write(nl60g->exit_sockets[0], "T", 1));
-	pthread_join(nl60g->poll_thread, NULL);
-	close(nl60g->exit_sockets[0]);
-	close(nl60g->exit_sockets[1]);
-	nl60g->exit_sockets[0] = nl60g->exit_sockets[1] = -1;
 }
 
 static bool

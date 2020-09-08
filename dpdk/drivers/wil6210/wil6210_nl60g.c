@@ -152,6 +152,7 @@ enum nl60g_generic_cmd {
 	NL_60G_GEN_GET_FW_STATE,
 	NL_60G_GEN_AUTO_RADAR_RX_CONFIG, /* automotive radar */
 	NL_60G_GEN_GET_STA_INFO,
+	NL_60G_GEN_GET_FW_CAPA,
 };
 
 enum nl60g_pmc_cmd {
@@ -227,6 +228,13 @@ enum qca_wlan_vendor_driver_fw_state {
 
 enum qca_wlan_vendor_nl60g_sta_info {
 	QCA_WLAN_VENDOR_ATTR_STA_INFO,
+};
+
+enum qca_wlan_vendor_driver_fw_capa {
+	/* wil->fw_capabilities bitmap. A variable length
+	 * buffer, 32 bit units, little endian
+	 */
+	QCA_WLAN_VENDOR_ATTR_DRIVER_FW_CAPA,
 };
 
 enum qca_wlan_vendor_nl60g_memio {
@@ -1184,6 +1192,33 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 					wil, &si->stations[i], i);
 			}
 
+			nla_nest_end(creply, vendor_data);
+
+			nl_send_auto(port->sk, creply);
+			nlmsg_free(creply);
+			break;
+		}
+		case NL_60G_GEN_GET_FW_CAPA:
+		{
+			struct nl_msg *creply;
+			struct nlattr *vendor_data;
+
+			creply = nl60g_alloc_vendor_reply(sizeof(wil->fw_capabilities),
+				msg, &vendor_data);
+			if (!creply) {
+				rc = -NLE_NOMEM;
+				break;
+			}
+
+			if (nla_put(creply,
+				QCA_WLAN_VENDOR_ATTR_DRIVER_FW_CAPA,
+				sizeof(wil->fw_capabilities),
+				&wil->fw_capabilities)) {
+				RTE_LOG(ERR, PMD, "fail to return fw_capabilities\n");
+				nlmsg_free(creply);
+				rc = -NLE_NOMEM;
+				break;
+			}
 			nla_nest_end(creply, vendor_data);
 
 			nl_send_auto(port->sk, creply);

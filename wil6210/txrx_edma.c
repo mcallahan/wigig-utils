@@ -980,13 +980,6 @@ again:
 	}
 	stats = &wil->sta[cid].stats;
 
-	if (unlikely(skb->len < ETH_HLEN)) {
-		wil_dbg_txrx(wil, "Short frame, len = %d\n", skb->len);
-		stats->rx_short_frame++;
-		rxdata->skipping = true;
-		goto skipping;
-	}
-
 	if (unlikely(dmalen > sz)) {
 		wil_err(wil, "Rx size too large: %d bytes!\n", dmalen);
 		stats->rx_large_frame++;
@@ -1039,6 +1032,13 @@ skipping:
 	skb = rxdata->skb;
 	rxdata->skb = NULL;
 	rxdata->skipping = false;
+
+	if (unlikely(skb->len < ETH_HLEN)) {
+		wil_dbg_txrx(wil, "Short frame, len = %d\n", skb->len);
+		stats->rx_short_frame++;
+		kfree_skb(skb);
+		goto again;
+	}
 
 	if (stats) {
 		stats->last_mcs_rx = wil_rx_status_get_mcs(msg);

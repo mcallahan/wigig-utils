@@ -234,14 +234,22 @@ wil_add_dev_info(struct wil6210_priv *wil, const void *data, size_t len)
 	const struct dhd_cmd_add_dev_req *req = data;
 	struct dhd_state *dhd = wil->dhd;
 
-	if (len != sizeof(*req))
-		return EINVAL;
+	if (len != sizeof(*req)) {
+		wil_err(wil, "invalid request length, expected %zu got %zu\n",
+			sizeof(*req), len);
+		return -EINVAL;
+	}
 
-	if (req->dev_peer_index < 0 || req->dev_peer_index >= DHD_MAX_PEERS)
-		return EINVAL;
+	if (req->dev_peer_index < 0 || req->dev_peer_index >= DHD_MAX_PEERS) {
+		wil_err(wil, "invalid peer index: %d\n", req->dev_peer_index);
+		return -EINVAL;
+	}
 
-	if (req->dev_name_unit < 0 || req->dev_name_unit >= DHD_TOTAL_LINKS)
-		return EINVAL;
+	if (req->dev_name_unit < 0 || req->dev_name_unit >= DHD_TOTAL_LINKS) {
+		wil_err(wil, "invalid dev_name_unit: %d\n",
+			req->dev_name_unit);
+		return -EINVAL;
+	}
 
 	dhd->dhd_peer_link_id[req->dev_peer_index] = req->dev_name_unit;
 
@@ -263,13 +271,18 @@ wil_add_link_info(struct wil6210_priv *wil, const void *data, size_t len)
 	uint16_t link_id;
 	unsigned int i;
 
-	if (len != sizeof(*req))
-		return EINVAL;
+	if (len != sizeof(*req)) {
+		wil_err(wil, "invalid request length, expected %zu got %zu\n",
+			sizeof(*req), len);
+		return -EINVAL;
+	}
+
+	if (req->peer_index < 0 || req->peer_index >= DHD_MAX_PEERS) {
+		wil_err(wil, "invalid peer index: %d\n", req->peer_index);
+		return -EINVAL;
+	}
 
 	mutex_lock(&wil->mutex);
-
-	if (req->peer_index < 0 || req->peer_index >= DHD_MAX_PEERS)
-		return EINVAL;
 
 	/* Find the STA associated with the link */
 	for (i = 0; i < WIL6210_MAX_CID; i++) {
@@ -313,11 +326,16 @@ wil_del_link_info(struct wil6210_priv *wil, const void *data, size_t len)
 	const struct dhd_cmd_del_link_req *req = data;
 	unsigned int i;
 
-	if (len != sizeof(*req))
-		return EINVAL;
+	if (len != sizeof(*req)) {
+		wil_err(wil, "invalid request length, expected %zu got %zu\n",
+			sizeof(*req), len);
+		return -EINVAL;
+	}
 
-	if (req->peer_index < 0 || req->peer_index >= DHD_MAX_PEERS)
-		return EINVAL;
+	if (req->peer_index < 0 || req->peer_index >= DHD_MAX_PEERS) {
+		wil_err(wil, "invalid peer index: %d\n", req->peer_index);
+		return -EINVAL;
+	}
 
 	mutex_lock(&wil->mutex);
 	/* Find the STA associated with the link */
@@ -341,6 +359,41 @@ wil_del_link_info(struct wil6210_priv *wil, const void *data, size_t len)
 done:
 	mutex_unlock(&wil->mutex);
 	return 0;
+}
+
+static int
+wil_set_key(struct wil6210_priv *wil, const void *data, size_t len)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	const struct dhd_cmd_set_key *req = data;
+	int rc, expected_len;
+
+	if (len < sizeof(*req)) {
+		wil_err(wil, "request too short(%zu)\n", len);
+		return -EINVAL;
+	}
+	expected_len = sizeof(*req) + req->key_len;
+	if (len != expected_len) {
+		wil_err(wil, "invalid request length, expected %d got %zu\n",
+			expected_len, len);
+		return -EINVAL;
+	}
+
+	if (req->peer_index < 0 || req->peer_index >= DHD_MAX_PEERS) {
+		wil_err(wil, "invalid peer index: %d\n", req->peer_index);
+		return -EINVAL;
+	}
+
+	/* terragraph always uses pairwise (PTK), key index 0 */
+	if (req->key_len > 0) {
+		rc = wmi_add_cipher_key(vif, 0, req->mac_addr, req->key_len,
+					req->key_data,  WMI_KEY_USE_PAIRWISE);
+	} else {
+		rc = wmi_del_cipher_key(vif, 0, req->mac_addr,
+					WMI_KEY_USE_PAIRWISE);
+	}
+
+	return rc;
 }
 
 static int
@@ -378,7 +431,7 @@ wil_sync_handler(void *ctx, struct dhd_call_desc *req)
 		rc = wil_del_link_info(wil, req->call_data, req->call_len);
 		break;
 	case DHD_CMDOP_SET_KEY:
-		rc = 0;
+		rc = wil_set_key(wil, req->call_data, req->call_len);
 		break;
 	default:
 		rc = -ENOENT;

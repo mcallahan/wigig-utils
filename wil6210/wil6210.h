@@ -1162,6 +1162,9 @@ struct wil6210_priv {
 	u32 tx_reserved_entries; /* Used only in Talyn code-path */
 
 	u8 fail_iface_updown_on_fw_assert;
+
+	/* helper for logging in wil_start_xmit */
+	bool pr_once_fw;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)

@@ -2468,14 +2468,13 @@ netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 	const u8 *da = wil_skb_get_da(skb);
 	bool bcast = is_multicast_ether_addr(da);
 	struct wil_ring *ring;
-	static bool pr_once_fw;
 	int rc;
 
 	wil_dbg_txrx(wil, "start_xmit\n");
 	if (unlikely(!test_bit(wil_status_fwready, wil->status))) {
-		if (!pr_once_fw) {
+		if (!wil->pr_once_fw) {
 			wil_err(wil, "FW not ready\n");
-			pr_once_fw = true;
+			wil->pr_once_fw = true;
 		}
 		goto drop;
 	}
@@ -2488,7 +2487,7 @@ netdev_tx_t _wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)
 		wil_err(wil, "Xmit in monitor mode not supported\n");
 		goto drop;
 	}
-	pr_once_fw = false;
+	wil->pr_once_fw = false;
 
 	/* find vring */
 	if (vif->wdev.iftype == NL80211_IFTYPE_STATION && !vif->pbss) {

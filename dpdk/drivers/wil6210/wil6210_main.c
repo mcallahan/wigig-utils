@@ -795,6 +795,7 @@ int wil_priv_init(struct wil6210_priv *wil)
 	wil->fw_state = WIL_FW_STATE_DOWN;
 
 	wil->mtu_max = TXRX_BUF_LEN_DEFAULT - WIL_MAX_MPDU_OVERHEAD;
+	wil->crash_on_fw_err = true;
 
 	wil->nl60g = nl60g_init();
 	if (!wil->nl60g)

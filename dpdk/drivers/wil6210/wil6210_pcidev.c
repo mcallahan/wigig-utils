@@ -477,9 +477,11 @@ static int wil_set_mtu_max(const char *key __rte_unused,
 
 	errno = 0;
 	val = strtoul(value, NULL, 0);
-	if (errno != 0 || val < 0) {
+	if (errno != 0)
 		return -1;
-	}
+
+	if (val == 0)
+		return 0; /* skip */
 
 	if (val < 68 || val > WIL_MAX_ETH_MTU)
 		return -1;
@@ -761,7 +763,11 @@ wil6210_dev_init(struct rte_eth_dev *eth_dev)
 	pci_priv->vif.wdev.priv = wil;
 	pci_priv->vif.wdev.wiphy = wil->wiphy;
 
-	wil->crash_on_fw_err = true;
+	rc = wil_priv_init(wil);
+	if (rc) {
+		dev_err(dev, "wil_priv_init failed: %d\n", rc);
+		return rc;
+	}
 	wil_process_devargs(eth_dev);
 
 	bar_size = pdev->mem_resource[0].len;
@@ -769,13 +775,15 @@ wil6210_dev_init(struct rte_eth_dev *eth_dev)
 	    (bar_size > WIL6210_MAX_MEM_SIZE)) {
 		dev_err(dev, "Unexpected BAR0 size 0x%x\n",
 			bar_size);
-		return -ENODEV;
+		rc = -ENODEV;
+		goto wil_deinit;
 	}
 
 	wil = wil_if_alloc(wil);
 	if (IS_ERR(wil)) {
 		dev_err(dev, "Unable to init device data\n");
-		return -ENODEV;
+		rc = -ENODEV;
+		goto wil_deinit;
 	}
 
 	wil->csr = pdev->mem_resource[0].addr;
@@ -820,6 +828,8 @@ wil6210_dev_init(struct rte_eth_dev *eth_dev)
 	return wil6210_eth_dev_init(eth_dev);
 if_free:
 	wil_platform_ops_uninit(wil);
+wil_deinit:
+	wil_priv_deinit(wil);
 	return rc;
 }
 

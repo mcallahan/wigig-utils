@@ -150,11 +150,6 @@ void *wil_if_alloc(struct wil6210_priv *wil)
 
 	dev = wil->wiphy->dev;
 
-	rc = wil_priv_init(wil);
-	if (rc) {
-		dev_err(dev, "wil_priv_init failed\n");
-		goto out_cfg;
-	}
 	wil_dbg_misc(wil, "if_alloc\n");
 
 	vif = wil_vif_alloc(wil, "wlan%d", NET_NAME_UNKNOWN,
@@ -162,13 +157,10 @@ void *wil_if_alloc(struct wil6210_priv *wil)
 	if (IS_ERR(vif)) {
 		dev_err(dev, "wil_vif_alloc failed\n");
 		rc = -ENOMEM;
-		goto out_priv;
+		goto out_cfg;
 	}
 
 	return wil;
-
-out_priv:
-	wil_priv_deinit(wil);
 
 out_cfg:
 #ifndef WIL6210_PMD

@@ -367,6 +367,10 @@ wil_set_key(struct wil6210_priv *wil, const void *data, size_t len)
 	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
 	const struct dhd_cmd_set_key *req = data;
 	int rc, expected_len;
+	char mac_str[18];
+
+	wil_info(wil, "Set key for peer %d MAC %s\n",
+		req->peer_index, mac_to_str(req->mac_addr, mac_str));
 
 	if (len < sizeof(*req)) {
 		wil_err(wil, "request too short(%zu)\n", len);
@@ -431,6 +435,14 @@ wil_sync_handler(void *ctx, struct dhd_call_desc *req)
 		rc = wil_del_link_info(wil, req->call_data, req->call_len);
 		break;
 	case DHD_CMDOP_SET_KEY:
+		/* WPA supplicant installs keys right after sending the last EAPOL
+		 * message of the 4-way handshake.  EAPOL messages and keys take
+		 * different paths and keys may reach the firmware before the EAPOL
+		 * frame.  When that happens, the EAPOL message will be transmitted
+		 * encrypted and break the handshake.
+		 */
+		wil_info(wil, "HACK! Key installation delayed\n");
+		msleep(100);
 		rc = wil_set_key(wil, req->call_data, req->call_len);
 		break;
 	default:

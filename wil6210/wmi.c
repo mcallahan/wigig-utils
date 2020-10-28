@@ -4,7 +4,6 @@
  * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  */
 
-#include <linux/pci.h>
 #include <linux/moduleparam.h>
 #include <linux/etherdevice.h>
 #include <linux/if_arp.h>
@@ -473,6 +472,8 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_SET_VRING_PRIORITY_WEIGHT_CMD";
 	case WMI_SET_VRING_PRIORITY_CMDID:
 		return "WMI_SET_VRING_PRIORITY_CMD";
+	case WMI_TDM_SET_DN_PCIE_PARAMS_CMDID:
+		return "WMI_TDM_SET_DN_PCIE_PARAMS_CMD";
 	case WMI_FT_AUTH_CMDID:
 		return "WMI_FT_AUTH_CMD";
 	case WMI_FT_REASSOC_CMDID:
@@ -633,6 +634,8 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_SET_VRING_PRIORITY_WEIGHT_EVENT";
 	case WMI_SET_VRING_PRIORITY_EVENTID:
 		return "WMI_SET_VRING_PRIORITY_EVENT";
+	case WMI_TDM_SET_DN_PCIE_PARAMS_EVENTID:
+		return "WMI_TDM_SET_DN_PCIE_PARAMS_EVENT";
 	case WMI_COMMAND_NOT_SUPPORTED_EVENTID:
 		return "WMI_COMMAND_NOT_SUPPORTED_EVENT";
 	case WMI_FT_AUTH_STATUS_EVENTID:
@@ -2253,15 +2256,19 @@ int wmi_set_mac_address(struct wil6210_priv *wil, void *addr)
 int wmi_set_pcie_config_params(struct wil6210_priv *wil, int gen, int lanes)
 {
 	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
-	struct wmi_set_pcie_lane_count_cmd cmd;
+	struct wmi_tdm_set_dn_pcie_params_cmd cmd;
 
-	cmd.gen = gen;
-	cmd.lane_count = lanes;
+	if (!test_bit(WMI_FW_CAPABILITY_PCIE_CONFIG, wil->fw_capabilities))
+		return -EOPNOTSUPP;
+
+	cmd.gen = cpu_to_le32(gen);
+	cmd.lane_count = cpu_to_le32(lanes);
 
 	wil_dbg_wmi(wil, "Set PCIe lane count %d, gen %d\n", lanes, gen);
 
-	return wmi_send(wil, WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID, vif->mid,
-			&cmd, sizeof(cmd));
+	return wmi_call(wil, WMI_TDM_SET_DN_PCIE_PARAMS_CMDID, vif->mid,
+			&cmd, sizeof(cmd), WMI_TDM_SET_DN_PCIE_PARAMS_EVENTID,
+			NULL, 0, WIL_WMI_CALL_GENERAL_TO_MS);
 }
 
 int wmi_led_cfg(struct wil6210_priv *wil, bool enable)

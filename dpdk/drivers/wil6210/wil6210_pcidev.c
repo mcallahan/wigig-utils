@@ -142,7 +142,7 @@ static int wil_set_no_fw_recovery(const char *key __rte_unused,
 static int wil_set_mtu_max(const char *key __rte_unused,
 			   const char *value, void *arg);
 static int wil_set_p2mp_capable(const char *key __rte_unused,
-				  const char *value, void *arg);
+				const char *value, void *arg);
 
 static const arg_handler_t devarg_handlers[] = {
 	&wil_set_mac_devarg,     &wil_set_fw_core_dump_path,
@@ -150,7 +150,7 @@ static const arg_handler_t devarg_handlers[] = {
 	&wil_use_opaque_log,     &wil_set_crash_on_fw_err,
 	&wil_set_ucode_log_path, &wil_set_ucode_str_path,
 	&wil_set_fw_log_level,   &wil_set_no_fw_recovery,
-	&wil_set_mtu_max,        &wil_set_p2mp_capable,
+	&wil_set_mtu_max,	 &wil_set_p2mp_capable,
 };
 
 static
@@ -496,7 +496,7 @@ static int wil_set_mtu_max(const char *key __rte_unused,
 
 static int
 wil_set_p2mp_capable(const char *key __rte_unused, const char *value,
-    void *arg)
+		     void *arg)
 {
 	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
 

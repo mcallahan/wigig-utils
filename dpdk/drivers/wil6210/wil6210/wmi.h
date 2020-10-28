@@ -107,7 +107,14 @@ enum wmi_fw_capability {
 	WMI_FW_CAPABILITY_RAW_MODE			= 24,
 	WMI_FW_CAPABILITY_TX_REQ_EXT			= 25,
 	WMI_FW_CAPABILITY_CHANNEL_4			= 26,
+	WMI_FW_CAPABILITY_IPA				= 27,
 	WMI_FW_CAPABILITY_PREEMPTIVE_RING_SWITCH	= 28,
+	WMI_FW_CAPABILITY_STOP_PMC			= 29,
+	WMI_FW_CAPABILITY_TEMPERATURE_ALL_RF		= 30,
+	WMI_FW_CAPABILITY_SPLIT_REKEY			= 31,
+	WMI_FW_CAPABILITY_AP_POWER_MANAGEMENT		= 32,
+	WMI_FW_CAPABILITY_WDS_MODE			= 33,
+	WMI_FW_CAPABILITY_PCIE_CONFIG			= 34,
 	WMI_FW_CAPABILITY_MAX,
 };
 
@@ -298,7 +305,8 @@ enum wmi_command_id {
 	WMI_SET_AP_SLOT_SIZE_CMDID			= 0xA0F,
 	WMI_SET_VRING_PRIORITY_WEIGHT_CMDID		= 0xA10,
 	WMI_SET_VRING_PRIORITY_CMDID			= 0xA11,
-	WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID		= 0xA21,
+	WMI_TDM_SET_DN_PCIE_PARAMS_CMDID		= 0xA21,
+	WMI_TDM_SET_CN_PCIE_PARAMS_CMDID		= 0xA22,
 	WMI_SET_MAC_ADDRESS_CMDID			= 0xF003,
 	WMI_ABORT_SCAN_CMDID				= 0xF007,
 	WMI_SET_PROMISCUOUS_MODE_CMDID			= 0xF041,
@@ -1818,12 +1826,6 @@ struct wmi_set_vring_priority_cmd {
 	struct wmi_vring_priority vring_priority[0];
 } __packed;
 
-/* WMI_TDM_SET_DN_PCIE_LANE_COUNT_CMDID */
-struct wmi_set_pcie_lane_count_cmd {
-	__le32 lane_count;
-	__le32 gen;
-} __packed;
-
 /* WMI_BF_CONTROL_CMDID - deprecated */
 struct wmi_bf_control_cmd {
 	/* wmi_bf_triggers */
@@ -1953,6 +1955,18 @@ struct wmi_set_grant_mcs_cmd {
 /* WMI_SET_AP_SLOT_SIZE_CMDID */
 struct wmi_set_ap_slot_size_cmd {
 	__le32 slot_size;
+} __packed;
+
+/* WMI_TDM_SET_DN_PCIE_PARAMS_CMDID */
+struct wmi_tdm_set_dn_pcie_params_cmd {
+	__le32 lane_count;
+	__le32 gen;
+} __packed;
+
+/* WMI_TDM_SET_CN_PCIE_PARAMS_CMDID */
+struct wmi_tdm_set_cn_pcie_params_cmd {
+	__le32 lane_count;
+	__le32 gen;
 } __packed;
 
 /* WMI Events
@@ -2112,6 +2126,8 @@ enum wmi_event_id {
 	WMI_SET_AP_SLOT_SIZE_EVENTID			= 0x1A0F,
 	WMI_SET_VRING_PRIORITY_WEIGHT_EVENTID		= 0x1A10,
 	WMI_SET_VRING_PRIORITY_EVENTID			= 0x1A11,
+	WMI_TDM_SET_DN_PCIE_PARAMS_EVENTID		= 0x1A21,
+	WMI_TDM_SET_CN_PCIE_PARAMS_EVENTID		= 0x1A22,
 	WMI_SET_CHANNEL_EVENTID				= 0x9000,
 	WMI_ASSOC_REQ_EVENTID				= 0x9001,
 	WMI_EAPOL_RX_EVENTID				= 0x9002,
@@ -4089,6 +4105,20 @@ struct wmi_set_vring_priority_weight_event {
 
 /* WMI_SET_VRING_PRIORITY_EVENTID */
 struct wmi_set_vring_priority_event {
+	/* wmi_fw_status */
+	u8 status;
+	u8 reserved[3];
+} __packed;
+
+/* WMI_TDM_SET_DN_PCIE_PARAMS_EVENTID */
+struct wmi_tdm_set_dn_pcie_params_event {
+	/* wmi_fw_status */
+	u8 status;
+	u8 reserved[3];
+} __packed;
+
+/* WMI_TDM_SET_CN_PCIE_PARAMS_EVENTID */
+struct wmi_tdm_set_cn_pcie_params_event {
 	/* wmi_fw_status */
 	u8 status;
 	u8 reserved[3];

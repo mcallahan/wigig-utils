@@ -6,13 +6,13 @@
 
 #include <linux/etherdevice.h>
 #include <linux/moduleparam.h>
-#include <linux/version.h>
 #include <net/netlink.h>
 #include <net/cfg80211.h>
 #include "wil6210.h"
 #include "wmi.h"
 #include "ftm.h"
 #include "fw.h"
+#include "backport.h"
 
 #define WIL_MAX_ROC_DURATION_MS 5000
 #define WIL_BRD_SUFFIX_CN "CN"
@@ -372,8 +372,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 			 WIPHY_VENDOR_CMD_NEED_NETDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_do_acs,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -382,8 +382,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_ftm_get_capabilities,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -392,8 +392,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_ftm_start_session,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -402,8 +402,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_ftm_abort_session,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -412,8 +412,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_ftm_configure_responder,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -422,8 +422,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_aoa_start_measurement,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -432,8 +432,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_aoa_abort_measurement,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -442,8 +442,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_rf_sector_get_cfg,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -452,8 +452,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_rf_sector_set_cfg,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -463,8 +463,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_rf_sector_get_selected,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -474,8 +474,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_rf_sector_set_selected,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -484,8 +484,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_RUNNING,
 		.doit = wil_brp_set_ant_limit,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 	{
@@ -494,8 +494,8 @@ static const struct wiphy_vendor_command wil_nl80211_vendor_commands[] = {
 		.flags = WIPHY_VENDOR_CMD_NEED_WDEV |
 			 WIPHY_VENDOR_CMD_NEED_NETDEV,
 		.doit = wil_nl_60g_handle_cmd,
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 3, 0)
-		.policy = VENDOR_CMD_RAW_DATA
+#ifdef BACKPORT_HAS_VENDOR_CMD_POLICY
+		.policy = VENDOR_CMD_RAW_DATA,
 #endif
 	},
 };
@@ -747,7 +747,7 @@ int wil_cid_fill_sinfo(struct wil6210_vif *vif, int cid,
 			BIT(NL80211_STA_INFO_RX_DROP_MISC) |
 			BIT(NL80211_STA_INFO_TX_FAILED);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+#ifdef BACKPORT_HAS_EDMG
 	sinfo->txrate.flags = RATE_INFO_FLAGS_MCS | RATE_INFO_FLAGS_DMG;
 	sinfo->rxrate.flags = RATE_INFO_FLAGS_MCS | RATE_INFO_FLAGS_DMG;
 #else
@@ -2691,8 +2691,9 @@ static void wil_probe_client_handle(struct wil6210_priv *wil,
 	 */
 	bool alive = (sta->status == wil_sta_connected);
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 17, 0)
-	cfg80211_probe_status(ndev, sta->addr, req->cookie, alive, 0, false, GFP_KERNEL);
+#ifdef BACKPORT_PROBE_RESP_HAS_ACK_SIGNAL
+	cfg80211_probe_status(ndev, sta->addr, req->cookie, alive, 0, false,
+			      GFP_KERNEL);
 #else
 	cfg80211_probe_status(ndev, sta->addr, req->cookie, alive, GFP_KERNEL);
 #endif

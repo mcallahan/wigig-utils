@@ -17,7 +17,6 @@
 #include <linux/etherdevice.h>
 #include <linux/log2.h>
 #include <linux/platform_device.h>
-#include <linux/version.h>
 #include "umac.h"
 #include "wil6210.h" /* wil_dbg */
 
@@ -425,13 +424,13 @@ static void wil_umac_inact_worker(struct work_struct *work)
 	mutex_unlock(&umac->mutex);
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+#ifdef BACKPORT_HAS_TIMER_SETUP
 static void wil_umac_inact_fn(struct timer_list *t)
 #else
 static void wil_umac_inact_fn(ulong x)
 #endif
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+#ifdef BACKPORT_HAS_TIMER_SETUP
 	struct wil_umac *umac = from_timer(umac, t, inact_timer);
 #else
 	struct wil_umac *umac = (struct wil_umac *)x;
@@ -2033,7 +2032,7 @@ void *wil_umac_init(struct wil6210_priv *wil, u8 *permanent_mac,
 		goto err;
 	}
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
+#ifdef BACKPORT_HAS_TIMER_SETUP
 	timer_setup(&umac->inact_timer, wil_umac_inact_fn, 0);
 #else
 	setup_timer(&umac->inact_timer, wil_umac_inact_fn, (ulong)umac);

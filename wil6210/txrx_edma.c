@@ -24,6 +24,10 @@
 #define WIL_EDMA_RX_BUF_LEN_DEFAULT (2048)
 #define MAX_INVALID_BUFF_ID_RETRY (3)
 
+#if defined(BACKPORT_HAS_ZALLOC_COHERENT)
+#define dma_alloc_coherent dma_zalloc_coherent
+#endif
+
 static void wil_tx_desc_unmap_edma(struct device *dev,
 				   union wil_tx_desc *desc,
 				   struct wil_ctx *ctx)

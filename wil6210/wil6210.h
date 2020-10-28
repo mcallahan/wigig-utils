@@ -15,6 +15,7 @@
 #include <linux/types.h>
 #include <linux/irqreturn.h>
 #include "wmi.h"
+#include "backport.h"
 #include "wil_platform.h"
 #include "ftm.h"
 #include "fw.h"

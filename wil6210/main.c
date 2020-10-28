@@ -42,6 +42,11 @@ bool p2mp_capable = true;
 module_param(p2mp_capable, bool, 0644);
 MODULE_PARM_DESC(p2mp_capable, " p2mp capable unit (default: true)");
 
+bool non_commercial_rf = true;
+module_param(non_commercial_rf, bool, 0644);
+MODULE_PARM_DESC(non_commercial_rf,
+		 " non commercial RF attached (default: true)");
+
 /* if not set via modparam, will be set to default value of 1/8 of
  * rx ring size during init flow
  */
@@ -2047,7 +2052,6 @@ int __wil_up(struct wil6210_priv *wil)
 
 	wil6210_bus_request(wil, WIL_DEFAULT_BUS_REQUEST_KBPS);
 
-	/* Send WMI_TDM_SET_DN_PCIE_PARAMS_CMDID as last command */
 	wil_dbg_misc(wil, "TG P2MP Wireless link capability: %d\n",
 		     p2mp_capable);
 	if (p2mp_capable) {
@@ -2072,10 +2076,15 @@ int __wil_up(struct wil6210_priv *wil)
 		}
 	}
 
-	rc = wmi_set_non_commercial_use(wil);
-	if (rc) {
-		wil_err(wil, "wmi_set_non_commercial_use failed, rc %d\n", rc);
-		return rc;
+	wil_dbg_misc(wil, "TG non commercial RF attached: %d\n",
+		     non_commercial_rf);
+	if (non_commercial_rf) {
+		rc = wmi_set_non_commercial_use(wil);
+		if (rc) {
+			wil_err(wil, "wmi_set_non_commercial_use failed, rc %d\n",
+				rc);
+			return rc;
+		}
 	}
 
 	return 0;

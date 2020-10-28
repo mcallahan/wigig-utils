@@ -3433,15 +3433,11 @@ int wmi_new_sta(struct wil6210_vif *vif, const u8 *mac, u8 aid)
 int wmi_set_non_commercial_use(struct wil6210_priv *wil)
 {
 	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
-	int rc;
 
 	wil_dbg_wmi(wil, "sending WMI_ALLOW_NON_COMMERCIAL_USE_CMDID\n");
 
-	rc = wmi_send(wil, WMI_ALLOW_NON_COMMERCIAL_USE_CMDID, vif->mid, NULL, 0);
-	if (rc)
-		wil_err(wil, "Failed to set non commercial use (%d)\n", rc);
-
-	return rc;
+	return wmi_send(wil, WMI_ALLOW_NON_COMMERCIAL_USE_CMDID, vif->mid,
+			NULL, 0);
 }
 
 void wmi_event_flush(struct wil6210_priv *wil)

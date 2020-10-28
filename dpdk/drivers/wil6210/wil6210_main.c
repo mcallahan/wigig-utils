@@ -2066,9 +2066,7 @@ int __wil_up(struct wil6210_priv *wil)
 
 	wil_info(wil, "p2mp_capable: %d\n", wil->p2mp_capable);
 	if (wil->p2mp_capable) {
-		/* Make sure this is Last WMI Command to send
-		 * get pcie information
-		 */
+		/* get pcie information */
 		rc = wil_get_pcie_params(wil, &val);
 		if (rc) {
 			wil_err(wil, "Failed to get pcie capability information\n");
@@ -2087,13 +2085,16 @@ int __wil_up(struct wil6210_priv *wil)
 		}
 	}
 
-#ifdef TG_ENABLE_COMPAT_DPDK_ES
-	rc = wmi_set_non_commercial_use(wil);
-	if (rc) {
-		wil_err(wil, "wmi_set_non_commercial_use failed, rc %d\n", rc);
-		return rc;
+	wil_info(wil, "non_commercial_rf: %d\n", wil->non_commercial_rf);
+	if (wil->non_commercial_rf) {
+		rc = wmi_set_non_commercial_use(wil);
+		if (rc) {
+			wil_err(wil, "wmi_set_non_commercial_use failed, rc %d\n",
+				rc);
+			return rc;
+		}
 	}
-#endif
+
 	return 0;
 }
 

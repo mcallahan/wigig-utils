@@ -1196,6 +1196,7 @@ struct wil6210_priv {
 	bool no_fw_recovery;
 	int fw_log_level;
 	bool p2mp_capable;
+	bool non_commercial_rf;
 
 	size_t fw_log_offset;
 	size_t fw_log_buf_entries;

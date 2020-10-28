@@ -102,6 +102,7 @@ MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 #define WIL_NO_FW_RECOVERY_ARG "no-fw-recovery"
 #define WIL_MTU_MAX_ARG "mtu-max"
 #define WIL_P2MP_CAPABLE_ARG "p2mp-capable"
+#define WIL_NON_COMMERCIAL_RF_ARG "non-commercial-rf"
 
 static const char *const devarg_keys[] = {
 	WIL_MAC_ADDR_ARG,
@@ -116,6 +117,7 @@ static const char *const devarg_keys[] = {
 	WIL_NO_FW_RECOVERY_ARG,
 	WIL_MTU_MAX_ARG,
 	WIL_P2MP_CAPABLE_ARG,
+	WIL_NON_COMMERCIAL_RF_ARG,
 	NULL /* last key must be NULL */
 };
 
@@ -143,6 +145,8 @@ static int wil_set_mtu_max(const char *key __rte_unused,
 			   const char *value, void *arg);
 static int wil_set_p2mp_capable(const char *key __rte_unused,
 				const char *value, void *arg);
+static int wil_set_non_commercial_rf(const char *key __rte_unused,
+				     const char *value, void *arg);
 
 static const arg_handler_t devarg_handlers[] = {
 	&wil_set_mac_devarg,     &wil_set_fw_core_dump_path,
@@ -151,6 +155,7 @@ static const arg_handler_t devarg_handlers[] = {
 	&wil_set_ucode_log_path, &wil_set_ucode_str_path,
 	&wil_set_fw_log_level,   &wil_set_no_fw_recovery,
 	&wil_set_mtu_max,	 &wil_set_p2mp_capable,
+	&wil_set_non_commercial_rf,
 };
 
 static
@@ -505,6 +510,22 @@ wil_set_p2mp_capable(const char *key __rte_unused, const char *value,
 		return 0;
 	} else if (strcmp(value, "1") == 0) {
 		wil->p2mp_capable = true;
+		return 0;
+	}
+	return 1;
+}
+
+static int
+wil_set_non_commercial_rf(const char *key __rte_unused, const char *value,
+			  void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+
+	if (strcmp(value, "0") == 0) {
+		wil->non_commercial_rf = false;
+		return 0;
+	} else if (strcmp(value, "1") == 0) {
+		wil->non_commercial_rf = true;
 		return 0;
 	}
 	return 1;

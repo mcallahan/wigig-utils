@@ -9,6 +9,7 @@
 #include <linux/platform_device.h>
 #include <linux/mutex.h>
 #include <linux/rtnetlink.h>
+#include <linux/pci.h>
 
 #include <fb_tg_backhaul_if.h>
 
@@ -996,6 +997,66 @@ static void dhd_bh_stop(dhd_bh_info_t *dhd)
 		dhd_bh_unregister_device(dhd);
 }
 
+#define LINK_RETRAIN_TIMEOUT	HZ
+
+static int
+dhd_bh_pcie_retrain(dhd_bh_info_t *dhd, struct dhd_pcie_retrain_request *req)
+{
+	unsigned int devfn = PCI_DEVFN(req->devid, req->function);
+	struct pci_dev *dev = pci_get_domain_bus_and_slot(req->domain,
+		req->bus, devfn);
+	struct pci_dev *pdev;
+	unsigned long start_jiffies;
+	u16 reg16;
+
+	netdev_info(dhd->bh_dev, "dhd retrain request for PCIe device %04x:%02x:%02x.%01x\n",
+		    req->domain, req->bus, req->devid, req->function);
+	if (!dev) {
+		netdev_err(dhd->bh_dev, "PCIe device %04x:%02x:%02x.%01x not found\n",
+			   req->domain, req->bus, req->devid, req->function);
+		return -EINVAL;
+	}
+
+	if (!dev->bus || !dev->bus->self) {
+		netdev_err(dhd->bh_dev, "RC of PCIe device %04x:%02x:%02x.%01x not found\n",
+			   req->domain, req->bus, req->devid, req->function);
+		return -EINVAL;
+	}
+
+	pdev = dev->bus->self;
+	pcie_capability_read_word(pdev, PCI_EXP_LNKCTL, &reg16);
+	reg16 |= PCI_EXP_LNKCTL_RL;
+	pcie_capability_write_word(pdev, PCI_EXP_LNKCTL, reg16);
+	if (pdev->clear_retrain_link) {
+		/*
+		 * Due to an erratum in some devices the Retrain Link bit
+		 * needs to be cleared again manually to allow the link
+		 * training to succeed.
+		 */
+		reg16 &= ~PCI_EXP_LNKCTL_RL;
+		pcie_capability_write_word(pdev, PCI_EXP_LNKCTL, reg16);
+	}
+
+	/* Wait for link training end. Break out after waiting for timeout */
+	start_jiffies = jiffies;
+	for (;;) {
+		pcie_capability_read_word(pdev, PCI_EXP_LNKSTA, &reg16);
+		if (!(reg16 & PCI_EXP_LNKSTA_LT))
+			break;
+		if (time_after(jiffies, start_jiffies + LINK_RETRAIN_TIMEOUT))
+			break;
+		msleep(1);
+	}
+
+	if (reg16 & PCI_EXP_LNKSTA_LT) {
+		netdev_err(dhd->bh_dev, "PCIe device %04x:%02x:%02x.%01x retrain timeout\n",
+			   req->domain, req->bus, req->devid, req->function);
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
 static void dhd_bh_cleanup(dhd_bh_info_t *dhd)
 {
 	struct file *file = dhd->bh_file;
@@ -1036,6 +1097,7 @@ dhd_ioctl(struct file *file, uint ioctl_num, ulong arg)
 	dhd_bh_info_t *dhd = file->private_data;
 	union {
 		struct dhd_attach_request attach_req;
+		struct dhd_pcie_retrain_request retrain_req;
 	} u;
 	int rc;
 
@@ -1078,6 +1140,20 @@ dhd_ioctl(struct file *file, uint ioctl_num, ulong arg)
 		}
 		dhd_bh_stop(dhd);
 		rc = 0;
+		break;
+	case DPDK_DHD_PCIE_RETRAIN:
+		if (dhd == NULL) {
+			rc = -EINVAL;
+			break;
+		}
+
+		/* Get the retrain parameters */
+		if (copy_from_user(&u.retrain_req, (void __user *)arg,
+				   sizeof(u.retrain_req))) {
+			rc = -EFAULT;
+			break;
+		}
+		rc = dhd_bh_pcie_retrain(dhd, &u.retrain_req);
 		break;
 	default:
 		rc = -ENOTTY;

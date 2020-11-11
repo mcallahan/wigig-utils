@@ -18,10 +18,26 @@ struct dhd_attach_request {
 	uint8_t pci_function;
 };
 
+/*
+ * provides a service to DPDK to retrain the PCIe
+ * link of the wireless card PCIe device.
+ * specify the PCIe address ot the wireless device,
+ * locate its parent (root complex) and trigger
+ * link retraining
+ */
+struct dhd_pcie_retrain_request {
+	uint32_t domain;
+	uint8_t bus;
+	uint8_t devid;
+	uint8_t function;
+};
+
 #define DHD_TYPE 'd'
 #define DPDK_DHD_ATTACH _IOWR(DHD_TYPE, 1, struct dhd_attach_request)
 #define DPDK_DHD_START _IO(DHD_TYPE, 2)
 #define DPDK_DHD_STOP _IO(DHD_TYPE, 3)
+#define DPDK_DHD_PCIE_RETRAIN _IOW(DHD_TYPE, 4, struct dhd_pcie_retrain_request)
+
 
 /* Control packet payloads */
 struct dhd_pkt_header {

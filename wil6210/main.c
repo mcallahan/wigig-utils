@@ -4,6 +4,8 @@
  * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/module.h>
+#include <linux/pci.h>
 #include <linux/moduleparam.h>
 #include <linux/if_arp.h>
 #include <linux/etherdevice.h>
@@ -1714,6 +1716,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 	unsigned long status_flags = BIT(wil_status_resetting);
 	int no_flash;
 	struct wil6210_vif *vif;
+	char *rfbb_board_file;
 
 	wil_dbg_misc(wil, "reset\n");
 
@@ -1820,14 +1823,24 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 	wil_set_oob_mode(wil, oob_mode);
 	if (load_fw) {
 		char board_file[WIL_BOARD_FILE_MAX_NAMELEN];
+		bool use_rfbb_brd_file;
+		struct pci_dev *pdev = wil->pdev;
+		struct device *dev = &(pdev->dev);
 
 		board_file[0] = '\0';
 		wil_get_board_file(wil, board_file, sizeof(board_file));
-		wil_info(wil, "Use firmware <%s> + board <%s>\n",
-			 wil->wil_fw_name, board_file);
+		rfbb_board_file = kasprintf(GFP_KERNEL, "%s/%s",
+			dev_name(dev), board_file);
+		if (rfbb_board_file == NULL) {
+			wil_err(wil, "Error unable to build RFBB board file string");
+			goto out;
+		}
+		wil_info(wil, "Use firmware <%s> + board <%s>, <%s>\n",
+			 wil->wil_fw_name, rfbb_board_file, board_file);
 
 		if  (wil->secured_boot) {
 			wil_err(wil, "secured boot is not supported\n");
+			kfree(rfbb_board_file);
 			return -ENOTSUPP;
 		}
 
@@ -1840,15 +1853,27 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 		rc = wil_request_firmware(wil, wil->wil_fw_name, true);
 		if (rc)
 			goto out;
-		if (wil->num_of_brd_entries)
-			rc = wil_request_board(wil, board_file);
-		else
-			rc = wil_request_firmware(wil, board_file, true);
+
+		use_rfbb_brd_file = wil_fw_verify_file_exists(wil, rfbb_board_file);
+		if (wil->num_of_brd_entries) {
+			if (use_rfbb_brd_file) {
+				rc = wil_request_board(wil, rfbb_board_file);
+			} else {
+				rc = wil_request_board(wil, board_file);
+			}
+		} else {
+			if (use_rfbb_brd_file) {
+				rc = wil_request_firmware(wil, rfbb_board_file, true);
+			} else {
+				rc = wil_request_firmware(wil, board_file, true);
+			}
+		}
 		if (rc)
 			goto out;
 
 		wil_pre_fw_config(wil);
 		wil_release_cpu(wil);
+		kfree(rfbb_board_file);
 	}
 
 	/* init after reset */
@@ -1928,6 +1953,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 	return rc;
 
 out:
+	kfree(rfbb_board_file);
 	clear_bit(wil_status_resetting, wil->status);
 	return rc;
 }

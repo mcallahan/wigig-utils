@@ -949,3 +949,25 @@ dhd_stop(struct dhd_state *dhd)
 {
 	dhd_stop_poll_worker(dhd);
 }
+
+int
+dhd_pcie_retrain(struct dhd_state *dhd, struct rte_pci_addr pci_addr)
+{
+	struct dhd_pcie_retrain_request retrain;
+	int rc;
+
+	retrain.domain = pci_addr.domain;
+	retrain.bus = pci_addr.bus;
+	retrain.devid = pci_addr.devid;
+	retrain.function = pci_addr.function;
+
+	rc = ioctl(dhd->dhd_fd, DPDK_DHD_PCIE_RETRAIN, &retrain);
+	if (rc < 0) {
+		rc = errno;
+		RTE_LOG(ERR, PMD, "pcie_retrain failed: %s\n",
+		    strerror(rc));
+		return rc;
+	}
+
+	return 0;
+}

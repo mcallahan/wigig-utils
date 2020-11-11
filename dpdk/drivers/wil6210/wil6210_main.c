@@ -12,6 +12,7 @@
 #include "wmi.h"
 #include "boot_loader.h"
 #include "slave_i.h"
+#include "dpdk-dhd-ctrl.h"
 
 #define WAIT_FOR_HALP_VOTE_MS 100
 #define WAIT_FOR_SCAN_ABORT_MS 1000
@@ -236,6 +237,22 @@ static int wil_get_pcie_params(struct wil6210_priv *wil, u16 *val)
 		wil_err(wil, "Failed to read pcie capability link status\n");
 		return -1;
 	}
+	return 0;
+}
+
+static int
+wil_get_pcie_gen_lanes(struct wil6210_priv *wil, u32 *gen, u32 *lanes)
+{
+	int rc;
+	u16 val;
+
+	rc = wil_get_pcie_params(wil, &val);
+	if (rc)
+		return rc;
+
+	*gen = val & PCI_EXP_LNKSTA_CLS;
+	*lanes = (val & PCI_EXP_LNKSTA_NLW) >> PCI_EXP_LNKSTA_NLW_SHIFT;
+
 	return 0;
 }
 
@@ -2064,17 +2081,27 @@ int __wil_up(struct wil6210_priv *wil)
 
 	wil6210_bus_request(wil, WIL_DEFAULT_BUS_REQUEST_KBPS);
 
+	if (wil->pcie_expected_gen != 0 && wil->pcie_expected_lanes != 0) {
+		rc = wil_get_pcie_gen_lanes(wil, &pcie_gen, &pcie_lane_count);
+		if (rc)
+			return rc;
+		if (pcie_gen != wil->pcie_expected_gen ||
+		    pcie_lane_count != wil->pcie_expected_lanes) {
+			wil_info(wil, "PCIe link downgraded (gen%d,x%d expected gen%d,x%d)\n",
+				 pcie_gen, pcie_lane_count, wil->pcie_expected_gen,
+				 wil->pcie_expected_lanes);
+			rc = dhd_pcie_retrain(wil->dhd, wil->pdev->addr);
+			if (rc)
+				return rc;
+		}
+	}
+
 	wil_info(wil, "p2mp_capable: %d\n", wil->p2mp_capable);
 	if (wil->p2mp_capable) {
 		/* get pcie information */
-		rc = wil_get_pcie_params(wil, &val);
-		if (rc) {
-			wil_err(wil, "Failed to get pcie capability information\n");
+		rc = wil_get_pcie_gen_lanes(wil, &pcie_gen, &pcie_lane_count);
+		if (rc)
 			return rc;
-		}
-		pcie_gen = val & PCI_EXP_LNKSTA_CLS;
-		pcie_lane_count = (val & PCI_EXP_LNKSTA_NLW) >>
-			PCI_EXP_LNKSTA_NLW_SHIFT;
 		wil_info(wil, "wmi_set_pcie_config_params gen %d lane_count %d\n",
 			 pcie_gen, pcie_lane_count);
 		/* send pcie config params */

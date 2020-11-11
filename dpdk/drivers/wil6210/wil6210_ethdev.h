@@ -1197,6 +1197,7 @@ struct wil6210_priv {
 	int fw_log_level;
 	bool p2mp_capable;
 	bool non_commercial_rf;
+	u32 pcie_expected_gen, pcie_expected_lanes;
 
 	size_t fw_log_offset;
 	size_t fw_log_buf_entries;

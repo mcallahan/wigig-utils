@@ -103,6 +103,8 @@ MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 #define WIL_MTU_MAX_ARG "mtu-max"
 #define WIL_P2MP_CAPABLE_ARG "p2mp-capable"
 #define WIL_NON_COMMERCIAL_RF_ARG "non-commercial-rf"
+#define WIL_PCIE_EXPECTED_GEN_ARG "pcie-expected-gen"
+#define WIL_PCIE_EXPECTED_LANES_ARG "pcie-expected-lanes"
 
 static const char *const devarg_keys[] = {
 	WIL_MAC_ADDR_ARG,
@@ -118,6 +120,8 @@ static const char *const devarg_keys[] = {
 	WIL_MTU_MAX_ARG,
 	WIL_P2MP_CAPABLE_ARG,
 	WIL_NON_COMMERCIAL_RF_ARG,
+	WIL_PCIE_EXPECTED_GEN_ARG,
+	WIL_PCIE_EXPECTED_LANES_ARG,
 	NULL /* last key must be NULL */
 };
 
@@ -147,6 +151,10 @@ static int wil_set_p2mp_capable(const char *key __rte_unused,
 				const char *value, void *arg);
 static int wil_set_non_commercial_rf(const char *key __rte_unused,
 				     const char *value, void *arg);
+static int wil_set_pcie_expected_gen(const char *key __rte_unused,
+				     const char *value, void *arg);
+static int wil_set_pcie_expected_lanes(const char *key __rte_unused,
+				       const char *value, void *arg);
 
 static const arg_handler_t devarg_handlers[] = {
 	&wil_set_mac_devarg,     &wil_set_fw_core_dump_path,
@@ -155,7 +163,8 @@ static const arg_handler_t devarg_handlers[] = {
 	&wil_set_ucode_log_path, &wil_set_ucode_str_path,
 	&wil_set_fw_log_level,   &wil_set_no_fw_recovery,
 	&wil_set_mtu_max,	 &wil_set_p2mp_capable,
-	&wil_set_non_commercial_rf,
+	&wil_set_non_commercial_rf, &wil_set_pcie_expected_gen,
+	&wil_set_pcie_expected_lanes,
 };
 
 static
@@ -529,6 +538,40 @@ wil_set_non_commercial_rf(const char *key __rte_unused, const char *value,
 		return 0;
 	}
 	return 1;
+}
+
+static int
+wil_set_pcie_expected_gen(const char *key __rte_unused, const char *value,
+			  void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+	long val;
+
+	errno = 0;
+	val = strtol(value, NULL, 0);
+	if (errno != 0 || val < 0) {
+		return -1;
+	}
+
+	wil->pcie_expected_gen = val;
+	return 0;
+}
+
+static int
+wil_set_pcie_expected_lanes(const char *key __rte_unused, const char *value,
+			    void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+	long val;
+
+	errno = 0;
+	val = strtol(value, NULL, 0);
+	if (errno != 0 || val < 0) {
+		return -1;
+	}
+
+	wil->pcie_expected_lanes = val;
+	return 0;
 }
 
 static void wil_process_devargs(struct rte_eth_dev *eth_dev)

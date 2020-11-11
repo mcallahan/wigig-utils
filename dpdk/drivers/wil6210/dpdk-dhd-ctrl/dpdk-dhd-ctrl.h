@@ -94,6 +94,7 @@ int dhd_start(struct dhd_state *dhd);
 int dhd_send_event(struct dhd_state *dhd, const void *buf, size_t len);
 void dhd_stop(struct dhd_state*dhd);
 void dhd_fini(struct dhd_state *dhd);
+int dhd_pcie_retrain(struct dhd_state *dhd, struct rte_pci_addr pci_addr);
 
 void dhd_rx_setup(void *dhd, uint16_t in_port, struct rte_mempool *mb_pool);
 uint16_t dhd_rx_burst(void *dhd, struct rte_mbuf **bufs, uint16_t nb_pkts);

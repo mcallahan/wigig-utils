@@ -599,8 +599,18 @@ static bool wil_is_rx_idle_edma(struct wil6210_priv *wil)
 static void wil_rx_buf_len_init_edma(struct wil6210_priv *wil)
 {
 	/* RX buffer size must be aligned to 4 bytes */
-	wil->rx_buf_len = rx_large_buf ?
-		WIL_MAX_ETH_MTU : WIL_EDMA_RX_BUF_LEN_DEFAULT;
+	u32 sz = rte_pktmbuf_data_room_size(wil->ring_rx.mpool) -
+		RTE_PKTMBUF_HEADROOM;
+
+	if (sz >= WIL_MAX_ETH_MTU)
+		wil->rx_buf_len = WIL_MAX_ETH_MTU;
+	else if (sz >= 4096)
+		wil->rx_buf_len = 4096;
+	else
+		wil->rx_buf_len = WIL_EDMA_RX_BUF_LEN_DEFAULT;
+
+	wil_info(wil, "config RX buffer length of %d for pkbmbuf data room %d\n",
+		 wil->rx_buf_len, sz);
 }
 
 static int wil_rx_init_edma(struct wil6210_priv *wil, uint desc_ring_order)

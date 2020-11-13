@@ -363,6 +363,66 @@ out:
 	return;
 }
 
+int wil_get_pcie_gen_lanes(struct wil6210_priv *wil, u32 *gen, u32 *lanes)
+{
+	u16 linkstat;
+	int rc;
+
+	rc = pcie_capability_read_word(wil->pdev, PCI_EXP_LNKSTA,
+				       &linkstat);
+	if (rc) {
+		wil_err(wil, "pcie_capability_read_word failed, rc %d\n",
+			rc);
+		return rc;
+	}
+	*gen = linkstat & PCI_EXP_LNKSTA_CLS;
+	*lanes = (linkstat & PCI_EXP_LNKSTA_NLW) >> PCI_EXP_LNKSTA_NLW_SHIFT;
+	return 0;
+}
+
+int wil_pcie_retrain(struct wil6210_priv *wil)
+{
+	struct pci_dev *dev = wil->pdev;
+	struct pci_dev *rcdev;
+	unsigned long start;
+	u16 linkctl, linksta;
+	const int retrain_timeout = HZ; /* one second */
+
+	if (!dev->bus || !dev->bus->self) {
+		wil_err(wil, "RC of PCIe device not found\n");
+		return -EINVAL;
+	}
+
+	rcdev = dev->bus->self;
+	/* trigger the link training on root complex */
+	pcie_capability_read_word(rcdev, PCI_EXP_LNKCTL, &linkctl);
+	linkctl |= PCI_EXP_LNKCTL_RL;
+	pcie_capability_write_word(rcdev, PCI_EXP_LNKCTL, linkctl);
+	if (rcdev->clear_retrain_link) {
+		/* workaround for buggy PCIe chipsets */
+		linkctl &= ~PCI_EXP_LNKCTL_RL;
+		pcie_capability_write_word(rcdev, PCI_EXP_LNKCTL, linkctl);
+	}
+
+	/* wait for link training end */
+	start = jiffies;
+	for (;;) {
+		pcie_capability_read_word(rcdev, PCI_EXP_LNKSTA, &linksta);
+		if (!(linksta & PCI_EXP_LNKSTA_LT))
+			break;
+		if (time_after(jiffies, start + retrain_timeout))
+			break;
+		msleep(1);
+	}
+
+	if (linksta & PCI_EXP_LNKSTA_LT) {
+		wil_err(wil, "PCIe retrain timeout\n");
+		return -ETIMEDOUT;
+	}
+
+	return 0;
+}
+
 static int wil_platform_rop_notify(void *wil_handle,
 				   enum wil_platform_notif notif)
 {

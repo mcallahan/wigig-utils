@@ -1166,6 +1166,8 @@ struct wil6210_priv {
 
 	/* helper for logging in wil_start_xmit */
 	bool pr_once_fw;
+
+	u32 pcie_expected_gen, pcie_expected_lanes;
 };
 
 #define wil_to_wiphy(i) (i->wiphy)
@@ -1506,6 +1508,9 @@ void wil_init_txrx_ops(struct wil6210_priv *wil);
 
 void wil_fw_recovery(struct wil6210_priv *wil);
 void wil_pci_linkdown_recovery_worker(struct work_struct *work);
+int wil_get_pcie_gen_lanes(struct wil6210_priv *wil, u32 *gen, u32 *lanes);
+int wil_pcie_retrain(struct wil6210_priv *wil);
+
 
 /* TX API */
 int wil_ring_init_tx(struct wil6210_vif *vif, int cid);

@@ -677,6 +677,64 @@ vr_profile_store(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR_RW(vr_profile);
 
+static ssize_t
+wil_pcie_expected_gen_sysfs_show(
+	struct device *dev, struct device_attribute *attr,
+	char *buf)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	ssize_t len;
+
+	len = snprintf(buf, PAGE_SIZE, "%u\n", wil->pcie_expected_gen);
+	return len;
+}
+
+static ssize_t
+wil_pcie_expected_gen_sysfs_store(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+
+	if (kstrtou32(buf, 0, &wil->pcie_expected_gen))
+		return -EINVAL;
+
+	return count;
+}
+
+static DEVICE_ATTR(pcie_expected_gen, 0644,
+		   wil_pcie_expected_gen_sysfs_show,
+		   wil_pcie_expected_gen_sysfs_store);
+
+static ssize_t
+wil_pcie_expected_lanes_sysfs_show(
+	struct device *dev, struct device_attribute *attr,
+	char *buf)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+	ssize_t len;
+
+	len = snprintf(buf, PAGE_SIZE, "%u\n", wil->pcie_expected_lanes);
+	return len;
+}
+
+static ssize_t
+wil_pcie_expected_lanes_sysfs_store(struct device *dev,
+	struct device_attribute *attr,
+	const char *buf, size_t count)
+{
+	struct wil6210_priv *wil = dev_get_drvdata(dev);
+
+	if (kstrtou32(buf, 0, &wil->pcie_expected_lanes))
+		return -EINVAL;
+
+	return count;
+}
+
+static DEVICE_ATTR(pcie_expected_lanes, 0644,
+		   wil_pcie_expected_lanes_sysfs_show,
+		   wil_pcie_expected_lanes_sysfs_store);
+
 static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_ftm_txrx_offset.attr,
 	&dev_attr_thermal_throttling.attr,
@@ -687,6 +745,8 @@ static struct attribute *wil6210_sysfs_entries[] = {
 	&dev_attr_lo_power_calib.attr,
 	&dev_attr_snr_thresh.attr,
 	&dev_attr_vr_profile.attr,
+	&dev_attr_pcie_expected_gen.attr,
+	&dev_attr_pcie_expected_lanes.attr,
 	NULL
 };
 

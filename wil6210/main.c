@@ -1985,6 +1985,7 @@ int __wil_up(struct wil6210_priv *wil)
 	struct net_device *ndev = wil->main_ndev;
 	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 	int rc;
+	u32 pcie_gen, pcie_lane_count;
 
 	WARN_ON(!mutex_is_locked(&wil->mutex));
 
@@ -2052,23 +2053,33 @@ int __wil_up(struct wil6210_priv *wil)
 
 	wil6210_bus_request(wil, WIL_DEFAULT_BUS_REQUEST_KBPS);
 
+	if (wil->pcie_expected_gen != 0 && wil->pcie_expected_lanes != 0) {
+		rc = wil_get_pcie_gen_lanes(wil, &pcie_gen, &pcie_lane_count);
+		if (rc)
+			return rc;
+		if (pcie_gen != wil->pcie_expected_gen ||
+		    pcie_lane_count != wil->pcie_expected_lanes) {
+			wil_info(wil, "PCIe link downgraded (gen%d,x%d expected gen%d,x%d)\n",
+				 pcie_gen, pcie_lane_count,
+				 wil->pcie_expected_gen,
+				 wil->pcie_expected_lanes);
+			rc = wil_pcie_retrain(wil);
+			if (rc)
+				return rc;
+		}
+	}
+
 	wil_dbg_misc(wil, "TG P2MP Wireless link capability: %d\n",
 		     p2mp_capable);
 	if (p2mp_capable) {
-		int gen, lanes;
-		u16 linkstat;
 		/* Send PCIe GEN and lane count to FW */
-		rc = pcie_capability_read_word(wil->pdev, PCI_EXP_LNKSTA,
-					       &linkstat);
-		if (rc) {
-			wil_err(wil, "pcie_capability_read_word failed, rc %d\n",
-				rc);
+		rc = wil_get_pcie_gen_lanes(wil, &pcie_gen, &pcie_lane_count);
+		if (rc)
 			return rc;
-		}
-		gen = linkstat & PCI_EXP_LNKSTA_CLS;
-		lanes = (linkstat & PCI_EXP_LNKSTA_NLW) >> PCI_EXP_LNKSTA_NLW_SHIFT;
-		wil_dbg_misc(wil, "Read PCIe params gen %d lanes %d\n", gen, lanes);
-		rc = wmi_set_pcie_config_params(wil, gen, lanes);
+		wil_dbg_misc(wil, "Read PCIe params gen %d lanes %d\n",
+			     pcie_gen, pcie_lane_count);
+		rc = wmi_set_pcie_config_params(wil, pcie_gen,
+			pcie_lane_count);
 		if (rc) {
 			wil_err(wil, "wmi_set_pcie_config_params failed, rc %d\n",
 				rc);

@@ -2331,6 +2331,7 @@ wmi_call_async(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf, u16 len,
 
 	rc = mutex_trylock(&wil->wmi_mutex);
 	if (rc) {
+		wil_dbg_wmi(wil, "wmi mutex locked while attempting async wmi call\n");
 		/* check for timeout of previous async wmi call */
 		if (wil->wmi_async_pending &&
 		    curr_time_ms - wil->wmi_async_sent_time_ms > wil->wmi_to_msec) {

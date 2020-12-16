@@ -32,6 +32,7 @@ static struct wil_log_state wil_dbg_log[WIL_DBG_LOG_NUM] = {
     [ WIL_DBG_LOG_MIO ] = { 0, "pmd.wil.mio" },
     [ WIL_DBG_LOG_FW ] = { 0, "pmd.wil.fw" },
     [ WIL_DBG_LOG_UMAC ] = { 0, "pmd.wil.umac" },
+    [ WIL_DBG_LOG_QSTATS ] = { 0, "pmd.wil.qstats" },
 };
 
 RTE_INIT(wil_init_log);

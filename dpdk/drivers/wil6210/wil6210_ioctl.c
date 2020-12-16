@@ -100,6 +100,7 @@ wil_send_queue_stats_ioctl_async(struct wil6210_priv *wil, u32 *bytes_pending,
 	size_t stats_len, ioctl_len;
 	struct wil_sta_info *sta;
 	u32 tot_bytes_pending;
+	char macstr[18];
 
 	for (i = 0, num_links = 0; i < WIL6210_MAX_TX_RINGS; i++) {
 		sta = stas[i];
@@ -112,9 +113,17 @@ wil_send_queue_stats_ioctl_async(struct wil6210_priv *wil, u32 *bytes_pending,
 
 		queue_stats[num_links].bytes_pending = tot_bytes_pending;
 		queue_stats[num_links].arrival_rate = arrival_rate[i];
-
 		memcpy(queue_stats[num_links].dst_mac_addr, sta->addr,
 			sizeof(queue_stats[num_links].dst_mac_addr));
+
+		wil_dbg_qstats(wil,
+			"Queue stats message index %u, bytes_pending: %u, "
+			"arrival_rate: %u, dst_mac_addr: %s\n",
+			num_links,
+			queue_stats[num_links].bytes_pending,
+			queue_stats[num_links].arrival_rate,
+			mac_to_str(queue_stats[num_links].dst_mac_addr, macstr));
+
 		num_links++;
 	}
 
@@ -129,5 +138,8 @@ wil_send_queue_stats_ioctl_async(struct wil6210_priv *wil, u32 *bytes_pending,
 
 	ioctl_len = offsetof(struct fb_tg_if_event, data) + stats_len;
 
-	return wil_try_ioctl_async(wil, ioctl_req_buff, ioctl_len, NULL, NULL);
+	rc = wil_try_ioctl_async(wil, ioctl_req_buff, ioctl_len, NULL, NULL);
+	if (rc)
+		wil_dbg_qstats(wil, "async ioctl send failure rc=%u\n", rc);
+	return rc;
 }

@@ -369,6 +369,7 @@ wil6210_send_queue_stats(void *q, struct rte_eth_tx_pending_stats *pending,
 	if (test_bit(wil_status_suspending, wil->status) ||
 	    test_bit(wil_status_suspended, wil->status) ||
 	    test_bit(wil_status_resuming, wil->status)) {
+		wil_dbg_qstats(wil, "suspend/resume in progress.\n");
 		return -EAGAIN;
 	}
 
@@ -405,6 +406,11 @@ wil6210_send_queue_stats(void *q, struct rte_eth_tx_pending_stats *pending,
 				peer, sta->peer_id);
 			continue;
 		}
+
+		wil_dbg_qstats(wil,
+			"Peer with link up: %u, bytes pending from caller: %u, arrival "
+			"rate from caller: %u\n",
+			peer, pending[peer].bytes, pending[peer].arrival_rate);
 
 		/*
 		 * wil_sta_info structs for each peer in wil6210_priv are ordered by

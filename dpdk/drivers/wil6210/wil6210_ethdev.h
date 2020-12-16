@@ -1265,6 +1265,7 @@ enum wil_dbg_type {
 	WIL_DBG_LOG_UMAC,
 	WIL_DBG_LOG_FW,
 	WIL_DBG_LOG_MIO,
+	WIL_DBG_LOG_QSTATS,
 	WIL_DBG_LOG_NUM
 };
 
@@ -1276,6 +1277,7 @@ enum wil_dbg_type {
 #define WIL_DBG_LOG_MASK_UMAC	(1 << WIL_DBG_LOG_UMAC)
 #define WIL_DBG_LOG_MASK_FW 	(1 << WIL_DBG_LOG_FW)
 #define WIL_DBG_LOG_MASK_MIO	(1 << WIL_DBG_LOG_MIO)
+#define WIL_DBG_LOG_MASK_QSTATS	(1 << WIL_DBG_LOG_QSTATS)
 
 __printf(3, 4)
 void wil_dbg_trace(struct wil6210_priv *wil, int type, const char *fmt, ...);
@@ -1292,6 +1294,7 @@ void wil_dbg_trace(struct wil6210_priv *wil, int type, const char *fmt, ...);
 #define wil_dbg_misc(wil, fmt, arg...) wil_dbg(wil,MISC,  "DBG[MISC]" fmt, ##arg)
 #define wil_dbg_pm(wil, fmt, arg...) wil_dbg(wil, PM, "DBG[ PM ]" fmt, ##arg)
 #define wil_dbg_umac(wil, fmt, arg...) wil_dbg(wil, UMAC, "DBG[UMAC]" fmt, ##arg)
+#define wil_dbg_qstats(wil, fmt, arg...) wil_dbg(wil, QSTATS, "DBG[QSTA]" fmt, ##arg)
 
 /* target operations */
 /* register read */

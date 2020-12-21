@@ -21,7 +21,6 @@
 
 struct desc_alloc_info {
 	dma_addr_t pa;
-	dma_mem_t dmah;
 	void	  *va;
 };
 
@@ -53,6 +52,8 @@ void wil_pmc_alloc(struct wil6210_priv *wil,
 	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
 	struct wmi_pmc_cmd pmc_cmd = {0};
 	int last_cmd_err = -ENOMEM;
+	dma_addr_t desc_pa;
+	uint8_t *desc_va;
 
 	mutex_lock(&pmc->lock);
 
@@ -129,25 +130,28 @@ void wil_pmc_alloc(struct wil6210_priv *wil,
 		goto release_pmc_skb_list;
 	}
 
+	pmc->desc_va = wil_dma_zalloc_coherent(wil,
+			"pmc-desc", 0,
+			descriptor_size * num_descriptors,
+			&pmc->desc_dmah);
+	if (!pmc->desc_va) {
+		wil_err(wil, "ERROR allocating pmc descriptors memory\n");
+		goto release_pmc_pring;
+	}
+
 	/* initially, all descriptors are SW owned
 	 * For Tx, Rx, and PMC, ownership bit is at the same location, thus
 	 * we can use any
 	 */
+	desc_va = pmc->desc_va;
+	desc_pa = pmc->desc_dmah.dma_addr;
 	for (i = 0; i < num_descriptors; i++) {
 		struct vring_tx_desc *_d = &pmc->pring_va[i];
 		struct vring_tx_desc dd = {}, *d = &dd;
 		int j = 0;
 
-		pmc->descriptors[i].va = wil_dma_zalloc_coherent(wil,
-			"pmc-desc", i,
-			descriptor_size,
-			&pmc->descriptors[i].dmah);
-		pmc->descriptors[i].pa = pmc->descriptors[i].dmah.dma_addr;
-
-		if (unlikely(!pmc->descriptors[i].va)) {
-			wil_err(wil, "ERROR allocating pmc descriptor %d", i);
-			goto release_pmc_skbs;
-		}
+		pmc->descriptors[i].va = desc_va;
+		pmc->descriptors[i].pa = desc_pa;
 
 		for (j = 0; j < descriptor_size / sizeof(u32); j++) {
 			uint32_t *p = (uint32_t *)pmc->descriptors[i].va + j;
@@ -163,6 +167,9 @@ void wil_pmc_alloc(struct wil6210_priv *wil,
 		d->dma.length = cpu_to_le16(descriptor_size);
 		d->dma.d0 = BIT(9) | RX_DMA_D0_CMD_DMA_IT;
 		*_d = *d;
+
+		desc_va += descriptor_size;
+		desc_pa += descriptor_size;
 	}
 
 	wil_dbg_misc(wil, "pmc_alloc: allocated successfully\n");
@@ -181,21 +188,20 @@ void wil_pmc_alloc(struct wil6210_priv *wil,
 		wil_err(wil,
 			"WMI_PMC_CMD with ALLOCATE op failed with status %d",
 			pmc->last_cmd_status);
-		goto release_pmc_skbs;
+		goto release_pmc_desc_mem;
 	}
 
 	mutex_unlock(&pmc->lock);
 
 	return;
 
-release_pmc_skbs:
+release_pmc_desc_mem:
 	wil_err(wil, "exit on error: Releasing skbs...\n");
-	for (i = 0; i < num_descriptors && pmc->descriptors[i].va; i++) {
-		wil_dma_free_coherent(wil, &pmc->descriptors[i].dmah);
-		pmc->descriptors[i].va = NULL;
-	}
-	wil_err(wil, "exit on error: Releasing pring...\n");
+	wil_dma_free_coherent(wil, &pmc->desc_dmah);
+	pmc->desc_va = NULL;
 
+release_pmc_pring:
+	wil_err(wil, "exit on error: Releasing pring...\n");
 	wil_dma_free_coherent(wil, &pmc->pring_dmah);
 	pmc->pring_va = NULL;
 
@@ -258,16 +264,17 @@ void wil_pmc_free(struct wil6210_priv *wil, int send_pmc_cmd)
 		pmc->last_cmd_status = -ENOENT;
 	}
 
-	if (pmc->descriptors) {
-		int i;
+	if (pmc->desc_va) {
+		wil_dbg_misc(wil, "pmc_free: free descriptors va %p\n",
+			     pmc->desc_va);
+		wil_dma_free_coherent(wil, &pmc->desc_dmah);
 
-		for (i = 0;
-		     i < pmc->num_descriptors && pmc->descriptors[i].va; i++) {
-			wil_dma_free_coherent(wil, &pmc->descriptors[i].dmah);
-			pmc->descriptors[i].va = NULL;
-		}
-		wil_dbg_misc(wil, "pmc_free: free descriptor info %d/%d\n", i,
-			     pmc->num_descriptors);
+		pmc->desc_va = NULL;
+	} else {
+		pmc->last_cmd_status = -ENOENT;
+	}
+
+	if (pmc->descriptors) {
 		wil_dbg_misc(wil,
 			     "pmc_free: free pmc descriptors info list %p\n",
 			     pmc->descriptors);

@@ -809,6 +809,8 @@ struct pmc_ctx {
 	struct vring_tx_desc	*pring_va;
 	dma_addr_t		pring_pa;
 	dma_mem_t 		pring_dmah;
+	u8			*desc_va;
+	dma_mem_t		desc_dmah;
 	struct desc_alloc_info  *descriptors;
 	int			last_cmd_status;
 	int			num_descriptors;

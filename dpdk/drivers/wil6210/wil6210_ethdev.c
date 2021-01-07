@@ -89,6 +89,8 @@ static const struct rte_wil6210_xstats_name_off rte_stats_ul_strings[] = {
 	  offsetof(struct wil_net_stats, wil_tx_ring_calls) },
 	{ "wil_tx_ring_full",
 	  offsetof(struct wil_net_stats, wil_tx_ring_full) },
+	{ "wil_tx_zero_len_pkt_drops",
+	  offsetof(struct wil_net_stats, wil_tx_zero_len_pkt_drops) },
 	/* only add unsigned longs here */
 };
 
@@ -973,6 +975,7 @@ eth_xstats_get(struct rte_eth_dev *dev, struct rte_eth_xstat *xstats,
 		if (wil->xstats_flags & XSTATS_FLAGS_COUNTERS_CLEAR) {
 			sta->stats.wil_tx_ring_calls = 0;
 			sta->stats.wil_tx_ring_full = 0;
+			sta->stats.wil_tx_zero_len_pkt_drops = 0;
 		}
 	}
 

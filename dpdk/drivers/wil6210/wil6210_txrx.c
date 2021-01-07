@@ -257,7 +257,7 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	struct vring_tx_desc dd, *d = &dd;
 	volatile struct vring_tx_desc *_d;
 	u32 swhead = ring->swhead;
-	u32 pkt_len;
+	u32 pkt_len = rte_pktmbuf_pkt_len(skb);
 	int avail = wil_ring_avail_tx(ring);
 	int nr_frags;
 	uint f = 0;
@@ -271,6 +271,14 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	int used;
 	bool mcast = (ring_index == vif->bcast_ring);
 	uint len = rte_pktmbuf_data_len(skb);
+
+	if (pkt_len == 0) {
+		if (stats)
+			stats->wil_tx_zero_len_pkt_drops++;
+		wil_dbg_txrx(wil, "Tx[%2d] tx packet length is 0, dropping packet\n",
+			ring_index);
+		return -EINVAL;
+	}
 
 	nr_frags = skb->nb_segs - 1;
 	wil_dbg_txrx(wil, "tx_ring: %d bytes to ring %d, nr_frags %d\n",
@@ -349,11 +357,6 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	wil_hex_dump_txrx("TxD ", DUMP_PREFIX_NONE, 32, 4,
 			  (const void *)d, sizeof(*d), false);
 
-	/*
-	 * Cache packet len into local variable to avoid dereferencing
-	 * skb from this point on.
-	 */
-	pkt_len = skb->pkt_len;
 	ring->ctx[i].skb = skb;
 
 	/* performance monitoring */

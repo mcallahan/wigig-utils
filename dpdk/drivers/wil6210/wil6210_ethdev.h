@@ -600,6 +600,7 @@ struct wil_net_stats {
 	unsigned long	tx_errors;
 	unsigned long	wil_tx_ring_calls;
 	unsigned long	wil_tx_ring_full;
+	unsigned long	wil_tx_zero_len_pkt_drops;
 	atomic_t	tx_pend_bytes;
 	atomic_t	tx_pend_packets;
 	u64 tx_pend_packets_acc; /* accumulate tx_pend_packets to make it monotonic */

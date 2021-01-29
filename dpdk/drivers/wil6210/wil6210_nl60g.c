@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2020-2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -641,13 +641,15 @@ static void nl60g_send_60g_fw_state_evt(struct nl60g_port *port,
 	struct nlattr *vendor_data = NULL;
 	struct nl60g_event *evt;
 	struct nl60g_fw_state_event *fw_state_event;
+	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
 	int len = sizeof(*evt) + sizeof(*fw_state_event);
 
 	if (!port->sk || !port->publish_nl_evt)
 		return;
 
-	RTE_LOG(INFO, PMD, "report fw_state event to user space (%d)\n",
-		fw_state);
+	wil_info(wil, "report fw_state event to user space (%d)\n",
+		 fw_state);
 
 	evt = calloc(1, len);
 	if (!evt)
@@ -665,7 +667,7 @@ static void nl60g_send_60g_fw_state_evt(struct nl60g_port *port,
 		goto out;
 
 	if (nla_put(vendor_event, WIL_ATTR_60G_BUF, len, evt)) {
-		RTE_LOG(ERR, PMD, "failed to fill WIL_ATTR_60G_BUF\n");
+		wil_err(wil, "failed to fill WIL_ATTR_60G_BUF\n");
 		goto out;
 	}
 	nla_nest_end(vendor_event, vendor_data);
@@ -692,8 +694,8 @@ static void nl60g_send_60g_wmi_evt(
 	if (!port->sk || !port->publish_nl_evt)
 		return;
 
-	RTE_LOG(DEBUG, PMD, "report wmi event to user-space (0x%04x) [%d]\n",
-		le16_to_cpu(wmi_hdr->command_id), len);
+	wil_dbg_misc(wil, "report wmi event to user-space (0x%04x) [%d]\n",
+		     le16_to_cpu(wmi_hdr->command_id), len);
 
 	data_len = len - sizeof(struct wmi_cmd_hdr);
 	total_len = sizeof(*evt) + sizeof(*wmi_buf) + data_len;
@@ -718,7 +720,7 @@ static void nl60g_send_60g_wmi_evt(
 		goto out;
 
 	if (nla_put(vendor_event, WIL_ATTR_60G_BUF, total_len, evt)) {
-		RTE_LOG(ERR, PMD, "failed to fill WIL_ATTR_60G_BUF\n");
+		wil_err(wil, "failed to fill WIL_ATTR_60G_BUF\n");
 		goto out;
 	}
 	nla_nest_end(vendor_event, vendor_data);
@@ -902,7 +904,7 @@ nl60g_handle_pmc_data_command(struct nl60g_port *port,
 	if (num_bytes == 0) {
 		if (nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH,
 		                remaining)) {
-			RTE_LOG(ERR, PMD, "fail to write data length\n");
+			wil_err(wil, "fail to write data length\n");
 			rc = -NLE_NOMEM;
 			goto out_free;
 		}
@@ -913,7 +915,7 @@ nl60g_handle_pmc_data_command(struct nl60g_port *port,
 		if (nla_put_u32(creply,
 				QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
 				min_size)) {
-			RTE_LOG(ERR, PMD, "fail to write min data length\n");
+			wil_err(wil, "fail to write min data length\n");
 			rc = -NLE_NOMEM;
 			goto out_free;
 		}
@@ -926,20 +928,20 @@ nl60g_handle_pmc_data_command(struct nl60g_port *port,
 	toread = min_t(uint32_t, num_bytes, NL60G_MAX_PMC_PAYLOAD);
 	toread = reader->read_size(reader_ctx, toread);
 	if (toread < 0) {
-		RTE_LOG(ERR, PMD, "internal error read_size: %d\n", (int)toread);
+		wil_err(wil, "internal error read_size: %d\n", (int)toread);
 		rc = -NLE_NOMEM;
 		goto out_free;
 	}
 
 	data = nla_reserve(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA, toread);
 	if (!data) {
-		RTE_LOG(ERR, PMD, "fail to write data\n");
+		wil_err(wil, "fail to write data\n");
 		rc = -NLE_NOMEM;
 		goto out_free;
 	}
 	read = reader->read(reader_ctx, nla_data(data), toread);
 	if (toread != read) {
-		RTE_LOG(ERR, PMD, "internal error filling PMC data, toread %d read %d\n",
+		wil_err(wil, "internal error filling PMC data, toread %d read %d\n",
 			(int)toread, (int)read);
 		rc = -NLE_NOMEM;
 		goto out_free;
@@ -948,7 +950,7 @@ nl60g_handle_pmc_data_command(struct nl60g_port *port,
 	more_data = (read < remaining);
 	if (more_data &&
 	    nla_put_flag(creply, QCA_WLAN_VENDOR_ATTR_PMC_MORE_DATA)) {
-		RTE_LOG(ERR, PMD, "fail to write more data flag\n");
+		wil_err(wil, "fail to write more data flag\n");
 		rc = -NLE_NOMEM;
 		goto out_free;
 	}
@@ -1003,8 +1005,7 @@ nl60g_handle_pmc_command(struct nl60g_port *port,
 		rc = nl60g_handle_pmc_data_command(port, msg, pmc_cmd);
 		break;
 	default:
-		RTE_LOG(ERR, PMD, "unknown PMC command: %d\n",
-			(int)pmc_cmd->cmd_id);
+		wil_err(wil, "unknown PMC command: %d\n", (int)pmc_cmd->cmd_id);
 		rc = -NLE_FAILURE;
 		break;
 	}
@@ -1044,26 +1045,26 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 
 	cmd = nla_get_u32(tb[NL80211_ATTR_VENDOR_SUBCMD]);
 	if (cmd != QCA_NL80211_VENDOR_SUBCMD_UNSPEC) {
-		RTE_LOG(ERR, PMD, "skip unknown cmd: %d\n", (int)cmd);
+		wil_err(wil, "skip unknown cmd: %d\n", (int)cmd);
 		return NL_SKIP;
 	}
 
 	if (nla_parse_nested(tb2, QCA_WLAN_VENDOR_ATTR_MAX,
 	    tb[NL80211_ATTR_VENDOR_DATA], nl60g_policy)) {
-		RTE_LOG(ERR, PMD, "fail to parse vendor data\n");
+		wil_err(wil, "fail to parse vendor data\n");
 		rc = -NLE_INVAL;
 		goto out;
 	}
 
 	if (!tb2[WIL_ATTR_60G_CMD_TYPE]) {
-		RTE_LOG(ERR, PMD, "cmd type not found\n");
+		wil_err(wil, "cmd type not found\n");
 		rc = -NLE_INVAL;
 		goto out;
 	}
 
 	cmd_type = nla_get_u32(tb2[WIL_ATTR_60G_CMD_TYPE]);
 	if (!nl60g_validate_cmd(cmd_type, tb2, &len)) {
-		RTE_LOG(ERR, PMD, "Invalid nl_60g_cmd spec\n");
+		wil_err(wil, "Invalid nl_60g_cmd spec\n");
 		rc = -NLE_INVAL;
 		goto out;
 	}
@@ -1073,8 +1074,8 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		memcpy(&publish, nla_data(tb2[WIL_ATTR_60G_BUF]),
 		       sizeof(uint32_t));
 		port->publish_nl_evt = (publish != 0);
-		RTE_LOG(INFO, PMD, "Publish wmi event %s\n", publish ?
-			"enabled" : "disabled");
+		wil_info(wil, "Publish wmi event %s\n", publish ?
+			 "enabled" : "disabled");
 		nl60g_send_60g_fw_state_evt(port, wil->fw_state);
 		break;
 	case NL_60G_CMD_GENERIC:
@@ -1084,8 +1085,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		switch (gen_force_wmi.hdr.cmd_id) {
 		case NL_60G_GEN_FORCE_WMI_SEND:
 			if (len != sizeof(gen_force_wmi)) {
-				RTE_LOG(ERR, PMD, "cmd buffer wrong len %d\n",
-					len);
+				wil_err(wil, "cmd buffer wrong len %d\n", len);
 				rc = -EINVAL;
 				break;
 			}
@@ -1094,8 +1094,8 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			       sizeof(gen_force_wmi));
 			wil->force_wmi_send = gen_force_wmi.enable;
 
-			RTE_LOG(INFO, PMD, "force sending wmi commands %d\n",
-				wil->force_wmi_send);
+			wil_info(wil, "force sending wmi commands %d\n",
+				 wil->force_wmi_send);
 			break;
 		case NL_60G_GEN_FW_RESET:
 			/* not supported */
@@ -1124,7 +1124,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			if (nla_put_u32(creply,
 			    QCA_WLAN_VENDOR_ATTR_DRIVER_CAPA,
 			    capa)) {
-				RTE_LOG(ERR, PMD, "fail to return driver capa\n");
+				wil_err(wil, "fail to return driver capa\n");
 				nlmsg_free(creply);
 				rc = -NLE_NOMEM;
 				break;
@@ -1152,7 +1152,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			if (nla_put_u32(creply,
 					QCA_WLAN_VENDOR_ATTR_DRIVER_FW_STATE,
 					fw_state)) {
-				RTE_LOG(ERR, PMD, "fail to return fw_state\n");
+				wil_err(wil, "fail to return fw_state\n");
 				nlmsg_free(creply);
 				rc = -NLE_NOMEM;
 				break;
@@ -1214,7 +1214,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 				QCA_WLAN_VENDOR_ATTR_DRIVER_FW_CAPA,
 				sizeof(wil->fw_capabilities),
 				&wil->fw_capabilities)) {
-				RTE_LOG(ERR, PMD, "fail to return fw_capabilities\n");
+				wil_err(wil, "fail to return fw_capabilities\n");
 				nlmsg_free(creply);
 				rc = -NLE_NOMEM;
 				break;
@@ -1227,7 +1227,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 		}
 		default:
 			rc = -NLE_INVAL;
-			RTE_LOG(ERR, PMD, "invalid generic_cmd id %d",
+			wil_err(wil, "invalid generic_cmd id %d",
 				gen_force_wmi.hdr.cmd_id);
 		}
 		break;
@@ -1237,13 +1237,13 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 			nla_data(tb2[WIL_ATTR_60G_BUF]);
 
 		if (len < wmi_cmd->buf_len + sizeof(struct nl60g_send_receive_wmi)) {
-			RTE_LOG(ERR, PMD, "WMI buffer too small (%d)\n", len);
+			wil_err(wil, "WMI buffer too small (%d)\n", len);
 			rc = -NLE_INVAL;
 			break;
 		}
 
-		RTE_LOG(DEBUG, PMD, "sending user-space command (0x%04x) [%d]\n",
-			wmi_cmd->cmd_id, wmi_cmd->buf_len);
+		wil_dbg_misc(wil, "sending user-space command (0x%04x) [%d]\n",
+			     wmi_cmd->cmd_id, wmi_cmd->buf_len);
 
 		if (wil->force_wmi_send)
 			rc = wmi_force_send(wil, wmi_cmd->cmd_id, wmi_cmd->dev_id,
@@ -1286,7 +1286,7 @@ static int nl60g_cmd_handler(struct nl_msg *msg, void *arg)
 
 		if (nla_put(creply, QCA_WLAN_VENDOR_ATTR_MEMIO,
 			sizeof(struct nl60g_memio), nl_memio)) {
-			RTE_LOG(ERR, PMD, "fail to return CMD_MEMIO reply\n");
+			wil_err(wil, "fail to return CMD_MEMIO reply\n");
 			nlmsg_free(creply);
 			rc = -NLE_NOMEM;
 			break;
@@ -1374,6 +1374,8 @@ out:
 static int
 nl60g_read_connection(struct nl60g_port *port)
 {
+	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
 	int rc;
 
 	if (!port->sk) {
@@ -1382,7 +1384,7 @@ nl60g_read_connection(struct nl60g_port *port)
 
 	rc = nl_recvmsgs_report(port->sk, port->cb);
 	if (rc < 0)
-		RTE_LOG(ERR, PMD, "read error: %d\n", rc);
+		wil_err(wil, "read error: %d\n", rc);
 
 	return rc;
 }
@@ -1392,6 +1394,7 @@ nl60g_req_worker_thread(void *arg)
 {
 	struct nl60g_port *port = arg;
 	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
 	struct pollfd pfd[2];
 	int rc;
 
@@ -1408,13 +1411,13 @@ nl60g_req_worker_thread(void *arg)
 		if (rc < 0) {
 			if (errno == EINTR)
 				continue;
-			RTE_LOG(ERR, PMD, "poll error: %s\n", strerror(errno));
+			wil_err(wil, "poll error: %s\n", strerror(errno));
 			/* TODO should we exit? */
 			continue;
 		}
 
 		if (pfd[1].revents & POLLIN) {
-			RTE_LOG(INFO, PMD, "request thread exit by request\n");
+			wil_info(wil, "request thread exit by request\n");
 			break;
 		}
 
@@ -1439,24 +1442,23 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 	int blen = NL60G_MAX_MSG_SIZE;
 	struct nl60g_port *port = NULL;
 	bool success = false;
+	struct wil6210_priv *wil = nl60g->wil;
 
 	data_fd = accept(nl60g->fd, NULL, NULL);
 	if (data_fd == -1) {
-		RTE_LOG(ERR, PMD, "accept error: %s\n", strerror(errno));
+		wil_err(wil, "accept error: %s\n", strerror(errno));
 		return;
 	}
 
 	/* adjust socket buffers for supporting large memory blocks */
 	if (setsockopt(data_fd, SOL_SOCKET, SO_RCVBUF, &blen,
 	    sizeof(blen)) == -1) {
-		RTE_LOG(ERR, PMD, "fail to set SO_RCVBUF: %s\n",
-			strerror(errno));
+		wil_err(wil, "fail to set SO_RCVBUF: %s\n", strerror(errno));
 		/* continue anyway */
 	}
 	if (setsockopt(data_fd, SOL_SOCKET, SO_SNDBUF, &blen,
 	    sizeof(blen)) == -1) {
-		RTE_LOG(ERR, PMD, "fail to set SO_SNDBUF: %s\n",
-			strerror(errno));
+		wil_err(wil, "fail to set SO_SNDBUF: %s\n", strerror(errno));
 		/* continue anyway */
 	}
 
@@ -1468,7 +1470,7 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 		}
 	}
 	if (index == -1) {
-		RTE_LOG(ERR, PMD, "too many active connections, rejecting new\n");
+		wil_err(wil, "too many active connections, rejecting new\n");
 		close(data_fd);
 		return;
 	}
@@ -1478,13 +1480,13 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 	rc = socketpair(AF_UNIX, SOCK_STREAM, 0, port->exit_sockets);
 	if (rc == -1) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "unable to create exit sockets: %s\n",
+		wil_err(wil, "unable to create exit sockets: %s\n",
 			strerror(rc));
 		goto out;
 	}
 	port->cb = nl_cb_alloc(NL_CB_DEFAULT);
 	if (port->cb == NULL) {
-		RTE_LOG(ERR, PMD, "fail to alloc NL callback\n");
+		wil_err(wil, "fail to alloc NL callback\n");
 		goto out;
 	}
 	nl_cb_set(nl60g->ports[index].cb, NL_CB_SEQ_CHECK, NL_CB_CUSTOM,
@@ -1496,13 +1498,13 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 
 	nl60g->ports[index].sk = nl_socket_alloc_cb(nl60g->ports[index].cb);
 	if (nl60g->ports[index].sk == NULL) {
-		RTE_LOG(ERR, PMD, "fail to alloc NL socket\n");
+		wil_err(wil, "fail to alloc NL socket\n");
 		goto out;
 	}
 
 	nl60g->ports[index].reply = nl60g_alloc_reply_msg();
 	if (!nl60g->ports[index].reply) {
-		RTE_LOG(ERR, PMD, "fail to alloc reply\n");
+		wil_err(wil, "fail to alloc reply\n");
 		goto out;
 	}
 
@@ -1513,12 +1515,13 @@ nl60g_accept_new_connection(struct nl60g_state *nl60g)
 	    nl60g_req_worker_thread, port);
 	if (rc != 0) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "Unable to create request thread: %s\n",
-		    strerror(rc));
+		wil_err(wil, "Unable to create request thread: %s\n",
+			strerror(rc));
 		goto out;
 	}
 
-	RTE_LOG(DEBUG, PMD, "accept new connection data fd %d index %d\n", data_fd, index);
+	wil_info(wil, "accept new connection data fd %d index %d\n",
+		 data_fd, index);
 	success = true;
 
 out:
@@ -1569,6 +1572,7 @@ static void
 nl60g_close_connection(struct nl60g_port *port)
 {
 	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
 	int i, j;
 
 	/* perform some actions without the lock to avoid
@@ -1583,7 +1587,7 @@ nl60g_close_connection(struct nl60g_port *port)
 	pthread_join(port->req_thread, NULL);
 
 	pthread_mutex_lock(&nl60g->ports_mutex);
-	RTE_LOG(INFO, PMD, "nl60g_close_connection, fd %d\n", port->fd);
+	wil_info(wil, "nl60g_close_connection, fd %d\n", port->fd);
 
 	nl60g_free_connection(port);
 	pthread_mutex_unlock(&nl60g->ports_mutex);
@@ -1602,6 +1606,7 @@ static void *
 nl60g_poll_worker_thread(void *arg)
 {
 	struct nl60g_state *nl60g = arg;
+	struct wil6210_priv *wil = nl60g->wil;
 	struct pollfd pfd[NL60G_MAX_PORTS + 2];
 	int num_fd, i, rc, index;
 	bool rebuild_poll = true;
@@ -1632,13 +1637,13 @@ nl60g_poll_worker_thread(void *arg)
 		if (rc < 0) {
 			if (errno == EINTR)
 				continue;
-			RTE_LOG(ERR, PMD, "poll error: %s\n", strerror(errno));
+			wil_err(wil, "poll error: %s\n", strerror(errno));
 			/* TODO should we exit? */
 			continue;
 		}
 
 		if (pfd[1].revents & POLLIN) {
-			RTE_LOG(INFO, PMD, "poll thread exit by request\n");
+			wil_info(wil, "poll thread exit by request\n");
 			break;
 		}
 
@@ -1656,7 +1661,7 @@ nl60g_poll_worker_thread(void *arg)
 						break;
 				}
 				if (index >= NL60G_MAX_PORTS) {
-					RTE_LOG(ERR, PMD, "internal error, index %d not mapped for close\n",
+					wil_err(wil, "internal error, index %d not mapped for close\n",
 						i);
 					continue;
 				}
@@ -1685,24 +1690,24 @@ nl60g_stop_poll_worker(struct nl60g_state *nl60g)
 static int
 nl60g_start_poll_worker(struct nl60g_state *nl60g)
 {
+	struct wil6210_priv *wil = nl60g->wil;
 	rte_cpuset_t cpuset;
 	int i, rc;
 
 	rc = socketpair(AF_UNIX, SOCK_STREAM, 0, nl60g->exit_sockets);
 	if (rc == -1) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "unable to create exit sockets: %s\n",
+		wil_err(wil, "unable to create exit sockets: %s\n",
 			strerror(rc));
 		goto out;
 	}
-
 
 	rc = pthread_create(&nl60g->poll_thread, NULL,
 	    nl60g_poll_worker_thread, nl60g);
 	if (rc != 0) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "Unable to create poller thread: %s\n",
-		    strerror(rc));
+		wil_err(wil, "Unable to create poller thread: %s\n",
+			strerror(rc));
 		goto out;
 	}
 
@@ -1712,7 +1717,7 @@ nl60g_start_poll_worker(struct nl60g_state *nl60g)
 	rc = pthread_setaffinity_np(nl60g->poll_thread, sizeof(cpuset),
 		&cpuset);
 	if (rc != 0) {
-		RTE_LOG(ERR, PMD, "Unable to set poller thread affinity: %s\n",
+		wil_err(wil, "Unable to set poller thread affinity: %s\n",
 			strerror(errno));
 		nl60g_stop_poll_worker(nl60g);
 		return rc;
@@ -1746,7 +1751,7 @@ nl60g_start(struct nl60g_state *nl60g, struct wil6210_priv *wil,
 
 	mkdir(NL60G_SOCKET_DIR, S_IRWXU | S_IRWXG ); /* 0770 */
 	if (!nl60g_calc_socket_name(pci_addr, fname, sizeof(fname))) {
-		RTE_LOG(ERR, PMD, "fail to assign socket name\n");
+		wil_err(wil, "fail to assign socket name\n");
 		return -1;
 	}
 	unlink(fname);
@@ -1758,7 +1763,7 @@ nl60g_start(struct nl60g_state *nl60g, struct wil6210_priv *wil,
 	nl60g->fd = socket(AF_UNIX, SOCK_SEQPACKET, 0);
 	if (nl60g->fd == -1) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "unable to create local socket: %s\n",
+		wil_err(wil, "unable to create local socket: %s\n",
 			strerror(rc));
 		return rc;
 	}
@@ -1766,7 +1771,7 @@ nl60g_start(struct nl60g_state *nl60g, struct wil6210_priv *wil,
 	rc = bind(nl60g->fd, (const struct sockaddr *)&saddr, sizeof(saddr));
 	if (rc == -1) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "unable to bind local socket: %s\n",
+		wil_err(wil, "unable to bind local socket: %s\n",
 			strerror(rc));
 		goto out;
 	}
@@ -1774,7 +1779,7 @@ nl60g_start(struct nl60g_state *nl60g, struct wil6210_priv *wil,
 	rc = listen(nl60g->fd, NL60G_MAX_PORTS);
 	if (rc == -1) {
 		rc = errno;
-		RTE_LOG(ERR, PMD, "unable to listen on local socket: %s\n",
+		wil_err(wil, "unable to listen on local socket: %s\n",
 			strerror(rc));
 		goto out;
 	}

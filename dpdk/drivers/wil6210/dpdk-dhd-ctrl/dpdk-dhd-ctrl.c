@@ -222,6 +222,7 @@ dhd_dev_change_flags(struct dhd_state *dhd, uint32_t flags, uint32_t mask)
 	ifr.ifr_flags |= flags;
 	if (ioctl(s, SIOCSIFFLAGS, &ifr) < 0)
 		goto out;
+	close(s);
 	return 0;
 out:
 	ret = errno;

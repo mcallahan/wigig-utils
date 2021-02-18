@@ -257,6 +257,13 @@ wil_get_pcie_gen_lanes(struct wil6210_priv *wil, u32 *gen, u32 *lanes)
 	return 0;
 }
 
+void wil_sta_info_amsdu_init(struct wil_sta_info *sta)
+{
+	sta->amsdu_drop_sn = -1;
+	sta->amsdu_drop_tid = -1;
+	sta->amsdu_drop = 0;
+}
+
 #ifndef WIL6210_PMD
 static bool wil_vif_is_connected(struct wil6210_priv *wil, u8 mid)
 {
@@ -333,6 +340,7 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 	/* statistics */
 	memset(&sta->stats, 0, sizeof(sta->stats));
 	sta->stats.tx_latency_min_us = U32_MAX;
+	wil_sta_info_amsdu_init(sta);
 }
 
 static void _wil6210_disconnect_complete(struct wil6210_vif *vif,
@@ -579,6 +587,7 @@ void wil_delete_peers(struct wil6210_priv *wil)
 
 		/* statistics */
 		memset(&sta->stats, 0, sizeof(sta->stats));
+		wil_sta_info_amsdu_init(sta);
 	}
 	mutex_unlock(&wil->mutex);
 }

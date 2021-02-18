@@ -4,6 +4,7 @@
  *   Copyright(c) 2014-2017 Chelsio Communications.
  *   All rights reserved.
  *   Copyright(c) 2019-2020, Facebook, Inc. All rights reserved.
+ *   Copyright(c) 2020-2021, The Linux Foundation. All rights reserved.
  *
  *   Redistribution and use in source and binary forms, with or without
  *   modification, are permitted provided that the following conditions
@@ -744,6 +745,8 @@ __mac_to_str(const uint8_t *addr, size_t len, char buf[18])
 	return buf;
 }
 #define mac_to_str(addr, buf) __mac_to_str((addr), sizeof(buf), buf)
+
+static const u8 rfc1042_header[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 
 typedef struct wil_dmamem_t {
 	const struct rte_memzone	*dma_mz;

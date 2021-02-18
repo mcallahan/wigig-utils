@@ -785,6 +785,11 @@ struct wil_sta_info {
 	int link_id;
 	int tx_link;
 	int rx_link;
+
+	/* amsdu frame related info to check if the frame is valid */
+	int amsdu_drop_sn;
+	int amsdu_drop_tid;
+	u8 amsdu_drop;
 };
 
 enum {
@@ -1775,4 +1780,6 @@ int wmi_pmc_ext_start_host(struct wil6210_priv *wil, u64 mem_base,
 			   u16 ring_size, u16 payload_size);
 int wmi_pmc_ext_stop(struct wil6210_priv *wil);
 int wmi_pmc_ext_get_status(struct wil6210_priv *wil);
+
+void wil_sta_info_amsdu_init(struct wil_sta_info *sta);
 #endif /* __WIL6210_H__ */

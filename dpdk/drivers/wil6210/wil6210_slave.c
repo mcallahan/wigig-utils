@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2019-2020, Facebook, Inc. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
@@ -481,7 +481,6 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 		return;
 	}
 
-
 	if (wil->sta[evt->cid].status != wil_sta_unused) {
 		wil_err(wil, "Invalid status %d for CID %d\n",
 			wil->sta[evt->cid].status, evt->cid);
@@ -492,6 +491,7 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 	ether_addr_copy(wil->sta[evt->cid].addr, evt->mac_addr);
 	wil->sta[evt->cid].mid = vif->mid;
 	wil->sta[evt->cid].status = wil_sta_conn_pending;
+	wil_sta_info_amsdu_init(&wil->sta[evt->cid]);
 
 	rc = wil_ring_init_tx(vif, evt->cid);
 	if (rc) {

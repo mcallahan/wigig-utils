@@ -238,6 +238,30 @@ void wil_api_wigig_down(struct wil6210_priv *wil)
 	client_ops->wigig_down(&data);
 }
 
+void wil_api_link_key_set(struct wil6210_priv *wil, unsigned int peer_id)
+{
+	struct rte_wigig_link_key_set_info data;
+	struct dhd_link_info *li;
+	struct rte_wigig_client_ops *client_ops;
+
+	client_ops = wil->api_priv;
+	if (!client_ops || !client_ops->link_key_set) {
+		wil_err(wil, "No client op for link key set\n");
+		return;
+	}
+
+	li = wil_api_find_link_info(wil, peer_id);
+	if (li == NULL) {
+		wil_err(wil, "Cannot find link info for link key set client op\n");
+		return;
+	}
+
+	data.port_id = wil->port_id;
+	data.if_nameunit = li->dhd_peer_nameunit;
+	/* tell client that key installation is done */
+	client_ops->link_key_set(&data);
+}
+
 const struct rte_wigig_ops *
 rte_wigig_get_ops(void)
 {

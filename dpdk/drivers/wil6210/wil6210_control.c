@@ -392,6 +392,8 @@ wil_set_key(struct wil6210_priv *wil, const void *data, size_t len)
 	if (req->key_len > 0) {
 		rc = wmi_add_cipher_key(vif, 0, req->mac_addr, req->key_len,
 					req->key_data,  WMI_KEY_USE_PAIRWISE);
+		if (rc == 0)
+			wil_api_link_key_set(wil, req->peer_index);
 	} else {
 		rc = wmi_del_cipher_key(vif, 0, req->mac_addr,
 					WMI_KEY_USE_PAIRWISE);

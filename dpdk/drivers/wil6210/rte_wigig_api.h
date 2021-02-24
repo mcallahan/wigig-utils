@@ -24,11 +24,17 @@ struct rte_wigig_recovery_info {
 	uint32_t port_id;
 };
 
+struct rte_wigig_link_key_set_info {
+	uint32_t port_id;
+	uint32_t if_nameunit;
+};
+
 struct rte_wigig_client_ops {
 	void (*link_up)(struct rte_wigig_link_updown_info *data);
 	void (*link_down)(struct rte_wigig_link_updown_info *data);
 	void (*wigig_recovery)(struct rte_wigig_recovery_info *data);
 	void (*wigig_down)(struct rte_wigig_recovery_info *data);
+	void (*link_key_set)(struct rte_wigig_link_key_set_info *data);
 };
 
 struct rte_wigig_link_info {

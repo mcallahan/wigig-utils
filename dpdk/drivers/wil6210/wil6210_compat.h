@@ -314,6 +314,7 @@ u32 crc32_le(u32 crc, const u8 *ptr, u32 length);
 
 #define ENOTSUPP ENOTSUP
 #define ETH_ALEN 6
+#define U16_MAX	UINT16_MAX
 #define U8_MAX	UINT8_MAX
 #define S8_MAX	INT8_MAX
 #define S8_MIN	INT8_MIN

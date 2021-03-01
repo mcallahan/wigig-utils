@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2019-2020, Facebook, Inc. All rights reserved.
  */
 
@@ -311,7 +311,7 @@ int wil_if_add(struct wil6210_priv *wil)
 		if (rc) {
 			if (wil->nl60g)
 				nl60g_stop(wil->nl60g);
-			wil_pmc_free(wil, false);
+			wil_pmc_free(wil);
 			wil_err(wil, "failed to register slave, err %d\n", rc);
 		}
 		/* continue even if failed?? */
@@ -412,10 +412,8 @@ void wil_if_remove(struct wil6210_priv *wil)
 	if (wil->nl60g)
 		nl60g_stop(wil->nl60g);
 
-	/* free pmc memory without sending command to fw, as it will
-	 * be reset on the way down anyway
-	 */
-	wil_pmc_free(wil, false);
+	/* stop pmc and free its memory */
+	wil_pmc_free(wil);
 
 	rtnl_lock();
 	wil_vif_remove(wil, 0);

@@ -105,6 +105,8 @@ MODULE_PARM_DESC(ftm_mode, " Set factory test mode, default - false");
 #define WIL_NON_COMMERCIAL_RF_ARG "non-commercial-rf"
 #define WIL_PCIE_EXPECTED_GEN_ARG "pcie-expected-gen"
 #define WIL_PCIE_EXPECTED_LANES_ARG "pcie-expected-lanes"
+#define WIL_PMC_EXT_HOST "pmc-ext-host"
+#define WIL_PMC_EXT_RING_ORDER "pmc-ext-ring-order"
 
 static const char *const devarg_keys[] = {
 	WIL_MAC_ADDR_ARG,
@@ -122,6 +124,8 @@ static const char *const devarg_keys[] = {
 	WIL_NON_COMMERCIAL_RF_ARG,
 	WIL_PCIE_EXPECTED_GEN_ARG,
 	WIL_PCIE_EXPECTED_LANES_ARG,
+	WIL_PMC_EXT_HOST,
+	WIL_PMC_EXT_RING_ORDER,
 	NULL /* last key must be NULL */
 };
 
@@ -155,6 +159,10 @@ static int wil_set_pcie_expected_gen(const char *key __rte_unused,
 				     const char *value, void *arg);
 static int wil_set_pcie_expected_lanes(const char *key __rte_unused,
 				       const char *value, void *arg);
+static int wil_set_pmc_ext_host(const char *key __rte_unused,
+				const char *value, void *arg);
+static int wil_set_pmc_ext_ring_order(const char *key __rte_unused,
+				      const char *value, void *arg);
 
 static const arg_handler_t devarg_handlers[] = {
 	&wil_set_mac_devarg,     &wil_set_fw_core_dump_path,
@@ -164,7 +172,8 @@ static const arg_handler_t devarg_handlers[] = {
 	&wil_set_fw_log_level,   &wil_set_no_fw_recovery,
 	&wil_set_mtu_max,	 &wil_set_p2mp_capable,
 	&wil_set_non_commercial_rf, &wil_set_pcie_expected_gen,
-	&wil_set_pcie_expected_lanes,
+	&wil_set_pcie_expected_lanes, &wil_set_pmc_ext_host,
+	&wil_set_pmc_ext_ring_order,
 };
 
 static
@@ -571,6 +580,38 @@ wil_set_pcie_expected_lanes(const char *key __rte_unused, const char *value,
 	}
 
 	wil->pcie_expected_lanes = val;
+	return 0;
+}
+
+static int
+wil_set_pmc_ext_host(const char *key __rte_unused, const char *value, void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+
+	if (strcmp(value, "0") == 0) {
+		wil->pmc_ext_host = false;
+		return 0;
+	} else if (strcmp(value, "1") == 0) {
+		wil->pmc_ext_host = true;
+		return 0;
+	}
+
+	return -1;
+}
+
+static int
+wil_set_pmc_ext_ring_order(const char *key __rte_unused, const char *value,
+			   void *arg)
+{
+	struct wil6210_priv *wil = (struct wil6210_priv *)arg;
+	unsigned long val;
+
+	errno = 0;
+	val = strtoul(value, NULL, 0);
+	if (errno != 0 || val > U16_MAX)
+		return -1;
+
+	wil->pmc_ext_ring_order = val;
 	return 0;
 }
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/moduleparam.h>
@@ -492,6 +492,10 @@ static const char *cmdid2name(u16 cmdid)
 		return "WMI_INTERNAL_FW_IOCTL_CMD";
 	case WMI_ALLOW_NON_COMMERCIAL_USE_CMDID:
 		return "WMI_ALLOW_NON_COMMERCIAL_USE_CMD";
+	case WMI_PMC_EXT_CMDID:
+		return "WMI_PMC_EXT_CMD";
+	case WMI_PMC_EXT_GET_STATUS_CMDID:
+		return "WMI_PMC_EXT_GET_STATUS_CMD";
 	default:
 		return "Untracked CMD";
 	}
@@ -658,6 +662,8 @@ static const char *eventid2name(u16 eventid)
 		return "WMI_TDM_CONNECT_EVENT";
 	case WMI_TDM_DISCONNECT_EVENTID:
 		return "WMI_TDM_DISCONNECT_EVENT";
+	case WMI_PMC_EXT_GET_STATUS_EVENTID:
+		return "WMI_PMC_EXT_GET_STATUS_EVENT";
 	default:
 		return "Untracked EVENT";
 	}
@@ -4540,4 +4546,126 @@ int wmi_set_vr_profile(struct wil6210_priv *wil, u8 profile)
 	}
 
 	return 0;
+}
+
+int wmi_pmc_alloc(struct wil6210_priv *wil, u64 mem_base, u16 ring_size)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct wmi_pmc_cmd pmc_cmd = {0};
+	int rc;
+
+	pmc_cmd.op = WMI_PMC_ALLOCATE;
+
+	pmc_cmd.mem_base = cpu_to_le64(mem_base);
+	pmc_cmd.ring_size = cpu_to_le16(ring_size);
+
+	wil_dbg_wmi(wil, "pmc_alloc: send WMI_PMC_CMD with ALLOCATE op\n");
+	rc = wmi_send(wil, WMI_PMC_CMDID, vif->mid, &pmc_cmd,
+		      sizeof(pmc_cmd));
+	if (rc)
+		wil_err(wil,
+			"WMI_PMC_CMD with ALLOCATE op failed with status %d",
+			rc);
+
+	return rc;
+}
+
+int wmi_pmc_free(struct wil6210_priv *wil)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct wmi_pmc_cmd pmc_cmd = {0};
+	int rc;
+
+	wil_dbg_wmi(wil, "send WMI_PMC_CMD with RELEASE op\n");
+
+	pmc_cmd.op = WMI_PMC_RELEASE;
+	rc = wmi_send(wil, WMI_PMC_CMDID, vif->mid,
+		      &pmc_cmd, sizeof(pmc_cmd));
+	if (rc)
+		wil_err(wil, "WMI_PMC_CMD with RELEASE op failed, status %d",
+			rc);
+
+	return rc;
+}
+
+static int
+wmi_pmc_ext_command(struct wil6210_priv *wil, u64 mem_base, u16 ring_size,
+		    u16 payload_size, u8 op)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct wmi_pmc_ext_cmd cmd = {0};
+	struct {
+		struct wmi_cmd_hdr hdr;
+		struct wmi_pmc_ext_event evt;
+	} __packed reply = {
+		.evt = {.status = WMI_FW_STATUS_FAILURE},
+	};
+	int rc;
+
+	cmd.operation = op;
+
+	cmd.host_memory_info.ring_base_addr = cpu_to_le64(mem_base);
+	cmd.host_memory_info.ring_size = cpu_to_le16(ring_size);
+	cmd.host_memory_info.payload_size_bytes = cpu_to_le16(payload_size);
+
+	wil_dbg_wmi(wil,
+		    "send WMI_PMC_EXT_CMDID. mem_base=0x%llx ring_size=%d payload_size=%d op=%d\n",
+		    mem_base, ring_size, payload_size, op);
+
+	rc = wmi_call(wil, WMI_PMC_EXT_CMDID, vif->mid, &cmd,
+		      sizeof(cmd), WMI_PMC_EXT_EVENTID,
+		      &reply, sizeof(reply), WIL_WMI_CALL_GENERAL_TO_MS);
+	if (rc) {
+		wil_err(wil, "WMI_PMC_EXT_CMDID failed, rc %d\n", rc);
+		return rc;
+	}
+
+	if (reply.evt.status != WMI_FW_STATUS_SUCCESS) {
+		wil_err(wil, "WMI_PMC_EXT_CMDID failed, status %d\n",
+			reply.evt.status);
+		return -EINVAL;
+	}
+
+	return rc;
+}
+
+int wmi_pmc_ext_start_host(struct wil6210_priv *wil, u64 mem_base,
+			   u16 ring_size, u16 payload_size)
+{
+	return wmi_pmc_ext_command(wil, mem_base, ring_size, payload_size,
+				   WMI_PMC_EXT_OP_START_HOST_MODE);
+}
+
+int wmi_pmc_ext_stop(struct wil6210_priv *wil)
+{
+	return wmi_pmc_ext_command(wil, 0, 0, 0, WMI_PMC_EXT_OP_STOP);
+}
+
+int wmi_pmc_ext_get_status(struct wil6210_priv *wil)
+{
+	struct wil6210_vif *vif = ndev_to_vif(wil->main_ndev);
+	struct {
+		struct wmi_cmd_hdr hdr;
+		struct wmi_pmc_ext_get_status_event evt;
+	} __packed reply = {
+		.evt = {.status = WMI_FW_STATUS_FAILURE},
+	};
+	int rc;
+
+	rc = wmi_call(wil, WMI_PMC_EXT_GET_STATUS_CMDID, vif->mid, NULL, 0,
+		      WMI_PMC_EXT_GET_STATUS_EVENTID, &reply, sizeof(reply),
+		      WIL_WMI_CALL_GENERAL_TO_MS);
+	if (rc) {
+		wil_err(wil, "WMI_PMC_EXT_GET_STATUS_CMDID failed, rc %d\n",
+			rc);
+		return rc;
+	}
+
+	if (reply.evt.status != WMI_FW_STATUS_SUCCESS) {
+		wil_err(wil, "WMI_PMC_EXT_GET_STATUS_CMDID failed, status %d\n",
+			reply.evt.status);
+		return -EINVAL;
+	}
+
+	return reply.evt.pmc_status;
 }

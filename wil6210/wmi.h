@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: ISC */
 /*
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
  * Copyright (c) 2006-2012 Wilocity
  */
@@ -105,6 +105,7 @@ enum wmi_fw_capability {
 	WMI_FW_CAPABILITY_AP_POWER_MANAGEMENT		= 32,
 	WMI_FW_CAPABILITY_WDS_MODE			= 33,
 	WMI_FW_CAPABILITY_PCIE_CONFIG			= 34,
+	WMI_FW_CAPABILITY_PMC_LOG			= 35,
 	WMI_FW_CAPABILITY_MAX,
 };
 
@@ -300,6 +301,8 @@ enum wmi_command_id {
 	WMI_TEMP_SENSE_ALL_CMDID			= 0xA13,
 	WMI_TDM_SET_DN_PCIE_PARAMS_CMDID		= 0xA21,
 	WMI_TDM_SET_CN_PCIE_PARAMS_CMDID		= 0xA22,
+	WMI_PMC_EXT_CMDID				= 0xA23,
+	WMI_PMC_EXT_GET_STATUS_CMDID			= 0xA24,
 	WMI_SET_MAC_ADDRESS_CMDID			= 0xF003,
 	WMI_ABORT_SCAN_CMDID				= 0xF007,
 	WMI_SET_PROMISCUOUS_MODE_CMDID			= 0xF041,
@@ -1461,6 +1464,76 @@ struct wmi_pmc_cmd {
 	__le64 mem_base;
 } __packed;
 
+/* Host will use below struct to provide host info and the struct is used
+ * only during FW boot
+ */
+struct wmi_pmc_ext_host_memory_info {
+	/* Valid canary data */
+	__le32 canary_data;
+	__le64 ring_base_addr;
+	/* How many DMA RX-descriptors are contained in the ring */
+	__le16 ring_size;
+	/* The size of payload which is reserved per descriptor */
+	__le16 payload_size_bytes;
+} __packed;
+
+/* relevant only when op is WMI_PMC_EXT_OP_START_HOST_MODE */
+struct wmi_pmc_host_memory_info {
+	__le64 ring_base_addr;
+	/* How many DMA RX-descriptors are contained in the ring */
+	__le16 ring_size;
+	/* The size of payload which is reserved per descriptor */
+	__le16 payload_size_bytes;
+	__le32 reserved;
+} __packed;
+
+enum wmi_pmc_ext_op {
+	/* PMC payload is copied onto a predefined memory location in the
+	 * peripheral FW section.
+	 */
+	WMI_PMC_EXT_OP_START_FW_MODE	= 0x01,
+	/* PMC payload is copied onto a predefined memory location on the
+	 * host platform.
+	 */
+	WMI_PMC_EXT_OP_START_HOST_MODE	= 0x02,
+	/* The PMC will be stopped. The last payload in the internal PMC
+	 * buffer will be copied to the FW/HOST memory, according to the
+	 * operation mode.
+	 */
+	WMI_PMC_EXT_OP_STOP		= 0x03,
+};
+
+enum wmi_pmc_status {
+	WMI_PMC_STATUS_OFF		= 0x00,
+	WMI_PMC_STATUS_ON_FW_MODE	= 0x01,
+	WMI_PMC_STATUS_ON_HOST_MODE	= 0x02,
+};
+
+/* WMI_PMC_EXT_CMDID */
+struct wmi_pmc_ext_cmd {
+	/* enum wmi_pmc_ext_op */
+	u8 operation;
+	u8 reserved[3];
+	/* relevant only when op is WMI_PMC_EXT_OP_START_HOST_MODE */
+	struct wmi_pmc_host_memory_info host_memory_info;
+} __packed;
+
+/* WMI_PMC_EXT_EVENTID */
+struct wmi_pmc_ext_event {
+	/* enum wmi_fw_status */
+	u8 status;
+	u8 reserved[3];
+} __packed;
+
+/* WMI_PMC_EXT_GET_STATUS_EVENTID */
+struct wmi_pmc_ext_get_status_event {
+	/* enum wmi_fw_status */
+	u8 status;
+	/* enum wmi_pmc_status */
+	u8 pmc_status;
+	u8 reserved[2];
+} __packed;
+
 enum wmi_aoa_meas_type {
 	WMI_AOA_PHASE_MEAS	= 0x00,
 	WMI_AOA_PHASE_AMP_MEAS	= 0x01,
@@ -2143,6 +2216,8 @@ enum wmi_event_id {
 	WMI_TEMP_SENSE_ALL_DONE_EVENTID			= 0x1A13,
 	WMI_TDM_SET_DN_PCIE_PARAMS_EVENTID		= 0x1A21,
 	WMI_TDM_SET_CN_PCIE_PARAMS_EVENTID		= 0x1A22,
+	WMI_PMC_EXT_EVENTID				= 0x1A23,
+	WMI_PMC_EXT_GET_STATUS_EVENTID			= 0x1A24,
 	WMI_SET_CHANNEL_EVENTID				= 0x9000,
 	WMI_ASSOC_REQ_EVENTID				= 0x9001,
 	WMI_EAPOL_RX_EVENTID				= 0x9002,

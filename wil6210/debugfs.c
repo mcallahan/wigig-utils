@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -997,7 +997,7 @@ static ssize_t wil_write_pmccfg(struct file *file, const char __user *buf,
 			wil_err(wil, "pmccfg: free does not have any params\n");
 			return -EINVAL;
 		}
-		wil_pmc_free(wil, true);
+		wil_pmc_free(wil);
 	} else {
 		wil_err(wil, "pmccfg: Unrecognized command \"%s\"\n", cmd);
 		return -EINVAL;
@@ -1011,12 +1011,21 @@ static ssize_t wil_read_pmccfg(struct file *file, char __user *user_buf,
 {
 	struct wil6210_priv *wil = file->private_data;
 	char text[256];
-	char help[] = "pmc control, write:\n"
-	" - \"alloc <num descriptors> <descriptor_size>\" to allocate pmc\n"
-	" - \"free\" to free memory allocated for pmc\n";
 
-	snprintf(text, sizeof(text), "Last command status: %d\n\n%s",
-		 wil_pmc_last_cmd_status(wil), help);
+	if (test_bit(WMI_FW_CAPABILITY_PMC_LOG, wil->fw_capabilities)) {
+		char help[] =
+			"continuous PMC mode, not controlled by debugfs\n";
+
+		snprintf(text, sizeof(text), "%sCurrent status: %s\n",
+			 help, wil_pmc_ext_get_status(wil));
+	} else {
+		char help[] = "pmc control, write:\n"
+		" - \"alloc <num descriptors> <descriptor_size>\" to allocate pmc\n"
+		" - \"free\" to free memory allocated for pmc\n";
+
+		snprintf(text, sizeof(text), "Last command status: %d\n\n%s",
+			 wil_pmc_last_cmd_status(wil), help);
+	}
 
 	return simple_read_from_buffer(user_buf, count, ppos, text,
 				       strlen(text) + 1);
@@ -2878,8 +2887,6 @@ void wil6210_debugfs_remove(struct wil6210_priv *wil)
 	for (i = 0; i < ARRAY_SIZE(wil->sta); i++)
 		kfree(wil->sta[i].tx_latency_bins);
 
-	/* free pmc memory without sending command to fw, as it will
-	 * be reset on the way down anyway
-	 */
-	wil_pmc_free(wil, false);
+	/* stop PMC and free its memory */
+	wil_pmc_free(wil);
 }

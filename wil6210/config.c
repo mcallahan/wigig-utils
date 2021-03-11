@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: ISC
-/* Copyright (c) 2019, The Linux Foundation. All rights reserved. */
+/* Copyright (c) 2019-2021, The Linux Foundation. All rights reserved. */
 
 #include <linux/firmware.h>
 #include <linux/ctype.h>
@@ -143,6 +143,9 @@ struct wil_config_file_entry {
 #define WIL_CONFIG_PS_PROFILE_NAME "ps_profile"
 #define WIL_CONFIG_PS_PROFILE_MIN WMI_PS_PROFILE_TYPE_DEFAULT
 #define WIL_CONFIG_PS_PROFILE_MAX WMI_PS_PROFILE_TYPE_LOW_LATENCY_PS
+
+#define WIL_CONFIG_PMC_EXT_HOST "pmc_ext_host"
+#define WIL_CONFIG_PMC_EXT_RING_ORDER "pmc_ext_ring_order"
 
 static int wil_board_file_handler(struct wil6210_priv *wil, const char *buf,
 				  size_t count);
@@ -322,6 +325,19 @@ static struct wil_config_entry config_table[] = {
 						 ps_profile),
 			     WIL_CONFIG_PS_PROFILE_MIN,
 			     WIL_CONFIG_PS_PROFILE_MAX),
+	WIL_CONFIG_INI_PARAM(WIL_CONFIG_PMC_EXT_HOST,
+			     wil_ini_param_type_unsigned, NULL,
+			     WIL_CONFIG_VAR_OFFSET(struct wil6210_priv,
+						   pmc_ext_host),
+			     WIL_CONFIG_BOOL_SIZE, WIL_CONFIG_BOOL_MIN,
+			     WIL_CONFIG_BOOL_MAX),
+	WIL_CONFIG_INI_PARAM(WIL_CONFIG_PMC_EXT_RING_ORDER,
+			     wil_ini_param_type_unsigned, NULL,
+			     WIL_CONFIG_VAR_OFFSET(struct wil6210_priv,
+						   pmc_ext_ring_order),
+			     WIL_CONFIG_VAR_SIZE(struct wil6210_priv,
+						 pmc_ext_ring_order),
+			     WIL_RING_SIZE_ORDER_MIN, WIL_RING_SIZE_ORDER_MAX),
 };
 
 /**

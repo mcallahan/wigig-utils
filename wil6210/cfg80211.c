@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/etherdevice.h>
@@ -13,6 +13,7 @@
 #include "ftm.h"
 #include "fw.h"
 #include "backport.h"
+#include "pmc.h"
 
 #define WIL_MAX_ROC_DURATION_MS 5000
 #define WIL_BRD_SUFFIX_CN "CN"
@@ -113,9 +114,13 @@ static struct wil_regd_2_brd_suffix wil_regd_2_brd_suffix_map[] = {
 
 enum wil_nl_60g_cmd_type {
 	NL_60G_CMD_FW_WMI,
-	NL_60G_CMD_DEBUG,
+	NL_60G_CMD_GENERIC,
 	NL_60G_CMD_STATISTICS,
 	NL_60G_CMD_REGISTER,
+	NL_60G_CMD_FW_RMI,
+	NL_60G_CMD_MEMIO,
+	NL_60G_CMD_MEMIO_BLOCK,
+	NL_60G_CMD_PMC,
 };
 
 enum wil_nl_60g_evt_type {
@@ -125,6 +130,7 @@ enum wil_nl_60g_evt_type {
 	NL_60G_EVT_DRIVER_SHUTOWN,
 	NL_60G_EVT_DRIVER_DEBUG_EVENT,
 	NL_60G_EVT_DRIVER_GENERIC,
+	NL_60G_EVT_FW_RMI,
 };
 
 enum wil_nl_60g_generic_evt {
@@ -140,7 +146,14 @@ struct wil_nl_60g_fw_state_event {
 	u32 fw_state; /* wil_fw_state */
 } __packed;
 
-enum wil_nl_60g_debug_cmd {
+enum wil_nl_60g_pmc_cmd {
+	NL_60G_PMC_ALLOC,
+	NL_60G_PMC_FREE,
+	NL_60G_PMC_GET_DATA,
+	NL_60G_PMC_GET_DESC_DATA,
+};
+
+enum wil_nl_60g_generic_cmd {
 	NL_60G_DBG_FORCE_WMI_SEND,
 	NL_60G_GEN_RADAR_ALLOC_BUFFER,
 	NL_60G_GEN_FW_RESET,
@@ -161,6 +174,16 @@ enum wil_nl_60g_driver_capa {
 	NL_60G_DRIVER_CAPA_FW_STATE, /* notifications of FW state changes */
 	/* ioctl to write to the device address space */
 	NL_60G_DRIVER_CAPA_IOCTL_WRITE,
+	/* memio using NL, read dword/block */
+	NL_60G_DRIVER_CAPA_MEMIO,
+	/* memio using NL, write dword/block support */
+	NL_60G_DRIVER_CAPA_MEMIO_WRITE,
+	/* provides the GET_STA_INFO generic command */
+	NL_60G_DRIVER_CAPA_GET_STA_INFO,
+	/* Legacy PMC control is supported over netlink */
+	NL_60G_DRIVER_CAPA_PMC_LEGACY_OVER_NL,
+	/* FW/uCode Logs through continuous PMC mechanism */
+	NL_60G_DRIVER_CAPA_PMC_CONTINUOUS,
 };
 
 struct wil_nl_60g_driver_capabilities_reply {
@@ -171,6 +194,50 @@ enum qca_wlan_vendor_driver_capa {
 	QCA_WLAN_VENDOR_ATTR_DRIVER_CAPA,
 };
 
+/* max amount of data we can return in single PMC message
+ * is limited due to NL max size
+ */
+#define NL_60G_MAX_PMC_PAYLOAD  16336
+
+/* NL_60G_PMC_GET_DATA and NL_60G_PMC_GET_DESC_DATA reply */
+enum qca_wlan_vendor_pmc_get_data {
+	/* total amount of bytes currently available for reading.
+	 * will be returned when GET_DATA/GET_DESC_DATA is called
+	 * with num_bytes == 0
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH,
+	/* payload data */
+	QCA_WLAN_VENDOR_ATTR_PMC_DATA,
+	/* flag: will be set if more data is waiting in the PMC ring.
+	 * user should issue more calls to GET_DATA or GET_DESC_DATA to receive
+	 * the additional data
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_MORE_DATA,
+	/* This attribute stores the minimum amount of data that can be
+	 * received in a single call to GET_DATA/GET_DESC_DATA.
+	 * When this attribute is set, no data is returned (PMC_DATA will not
+	 * be set) and the GET_DATA/GET_DESC_DATA call will fail with
+	 * -NLE_FAILURE. The user is expected to retry the call with a bigger
+	 * buffer.
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
+	/* This attribute stores the first descriptor index of the PMC that
+	 * the driver starts dumping the data from.
+	 * This attribute will be set in the command reply only when
+	 * QCA_WLAN_VENDOR_ATTR_PMC_DATA attribute is set also.
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
+	/* This attribute stores the last (next) descriptor index of the PMC
+	 * that the driver finished dumping the data from. This index fullfills
+	 * the following formula:
+	 * Last desc = (first desc + number of descriptors copied to data attr)%
+	 *              ring_size;
+	 * This attribute will be set in the command reply only when
+	 * QCA_WLAN_VENDOR_ATTR_PMC_DATA attribute is set also.
+	 */
+	QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC,
+};
+
 struct wil_nl_60g_event {
 	u32 evt_type; /* wil_nl_60g_evt_type */
 	u32 buf_len;
@@ -178,14 +245,28 @@ struct wil_nl_60g_event {
 	u8 buf[0];
 } __packed;
 
-struct wil_nl_60g_debug { /* NL_60G_CMD_DEBUG */
-	u32 cmd_id; /* wil_nl_60g_debug_cmd */
+/* for commands with sub-commands such as GENERIC and PMC */
+struct wil_nl_60g_subcmd_hdr {
+	u32 cmd_id;
 } __packed;
 
-struct wil_nl_60g_debug_force_wmi {
-	struct wil_nl_60g_debug hdr;
+struct wil_nl_60g_subcmd_hdr_force_wmi {
+	struct wil_nl_60g_subcmd_hdr hdr;
 	u32 enable;
 } __packed;
+
+struct wil_nl_60g_pmc_alloc {
+	struct wil_nl_60g_subcmd_hdr hdr; /* contains command id */
+	u32 num_desc; /* number of descriptors in the PMC ring */
+	u32 payload_size;
+};
+
+/* used for NL_60G_PMC_GET_DATA and NL_60G_PMC_GET_DESC_DATA */
+struct wil_nl_60g_pmc_get_data {
+	struct wil_nl_60g_subcmd_hdr hdr; /* contains command id */
+	/* number of bytes to read. 0 to get available bytes to read */
+	u32 num_bytes;
+};
 
 static int wil_num_supported_channels(struct wil6210_priv *wil)
 {
@@ -4190,13 +4271,175 @@ void wil_nl_60g_fw_state_change(struct wil6210_priv *wil,
 	wil_nl_60g_fw_state_evt(wil);
 }
 
+/*
+ * handle PMC GET_DATA command
+ */
+static int
+wil_nl_60g_pmc_handle_data_command(struct wil6210_priv *wil,
+				   struct wil_nl_60g_subcmd_hdr *hdr,
+				   int len)
+{
+	struct sk_buff *skb;
+	u8 extra_data = 0;
+	u32 buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
+	int rc = 0;
+	struct wil_nl_60g_pmc_get_data *pmc_get_data_cmd;
+	struct nlattr *data_buffer;
+
+	if (len < sizeof(struct wil_nl_60g_pmc_get_data))
+		return -EINVAL;
+
+	pmc_get_data_cmd = (struct wil_nl_60g_pmc_get_data *)hdr;
+
+	wil_dbg_misc(wil,
+		     "NL_60G_PMC_GET_DATA. request get data buffer size=%d\n",
+		     pmc_get_data_cmd->num_bytes);
+
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(wil_to_wiphy(wil),
+						  NL_60G_MAX_PMC_PAYLOAD);
+	if (!skb)
+		return -ENOMEM;
+
+	if (pmc_get_data_cmd->num_bytes > 0 &&
+	    pmc_get_data_cmd->num_bytes < wil->pmc.descriptor_size) {
+		rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
+				 wil->pmc.descriptor_size);
+		if (rc) {
+			wil_err(wil,
+				"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH\n");
+			goto out_free;
+		}
+		rc = -EINVAL;
+		goto out_send;
+	}
+
+	if (pmc_get_data_cmd->num_bytes == 0) {
+		rc = wil_pmc_ext_get_data(wil, NULL, 0, &bytes, &extra_data,
+					  NULL, NULL);
+		if (rc)
+			goto out_free;
+
+		rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH,
+				 bytes);
+		if (rc) {
+			wil_err(wil,
+				"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH\n");
+			goto out_free;
+		}
+		goto out_send;
+	}
+
+	buffer_length = min_t(uint32_t, NL_60G_MAX_PMC_PAYLOAD,
+			      pmc_get_data_cmd->num_bytes);
+	data_buffer = nla_reserve(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
+				  buffer_length);
+	if (!data_buffer) {
+		kfree_skb(skb);
+		return -ENOMEM;
+	}
+
+	rc = wil_pmc_ext_get_data(wil, nla_data(data_buffer), buffer_length,
+				  &bytes, &extra_data, &first_desc, &last_desc);
+	if (rc)
+		goto out_free;
+
+	/* Update nl attr len to actual bytes copied*/
+	data_buffer->nla_len = nla_attr_size(bytes);
+
+	rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
+			 first_desc);
+	if (rc) {
+		wil_err(wil,
+			"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC\n");
+		goto out_free;
+	}
+
+	rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC,
+			 last_desc);
+	if (rc) {
+		wil_err(wil,
+			"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC\n");
+		goto out_free;
+	}
+
+	if (extra_data) {
+		rc = nla_put_flag(skb, QCA_WLAN_VENDOR_ATTR_PMC_MORE_DATA);
+		if (rc) {
+			wil_err(wil,
+				"Failed to return driver PMC more data field\n");
+			goto out_free;
+		}
+	}
+
+out_send:
+	wil_dbg_misc(wil,
+		     "NL_60G_PMC_GET_DATA succeeded. bytes written=%d extra_data=%d\n",
+		     bytes, extra_data);
+
+	cfg80211_vendor_cmd_reply(skb);
+	return rc;
+
+out_free:
+	kfree_skb(skb);
+	return rc;
+}
+
+static int wil_nl_60g_pmc_handle(struct wil6210_priv *wil,
+				 struct wil_nl_60g_subcmd_hdr *hdr,
+				 int len)
+{
+	int rc;
+
+	switch (hdr->cmd_id) {
+	case NL_60G_PMC_ALLOC:
+	{
+		struct wil_nl_60g_pmc_alloc *alloc_cmd;
+
+		if (len < sizeof(struct wil_nl_60g_pmc_alloc))
+			return -EINVAL;
+
+		alloc_cmd = (struct wil_nl_60g_pmc_alloc *)hdr;
+		rc = wil_pmc_ext_alloc(wil, alloc_cmd->num_desc,
+				       alloc_cmd->payload_size);
+		if (rc)
+			return rc;
+
+		wil_info(wil,
+			 "NL_60G_PMC_ALLOC succeeded. num_desc=%d payload_size=%d\n",
+			 alloc_cmd->num_desc, alloc_cmd->payload_size);
+
+		break;
+	}
+	case NL_60G_PMC_FREE:
+		/* pmc_ext_free, it first stops the PMC, and then it frees its
+		 * allocated memory. This NL command does not fail, it always
+		 * returns success.
+		 */
+		rc = wil_pmc_ext_free(wil);
+
+		wil_info(wil, "NL_60G_PMC_FREE finished\n");
+		break;
+	case NL_60G_PMC_GET_DATA:
+		rc = wil_nl_60g_pmc_handle_data_command(wil, hdr, len);
+		break;
+	case NL_60G_PMC_GET_DESC_DATA:
+		return -EOPNOTSUPP;
+	default:
+		rc = -EINVAL;
+		wil_err(wil, "invalid pmc_cmd id %d", hdr->cmd_id);
+		break;
+	}
+
+	return rc;
+}
+
 static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 				 const void *data, int data_len)
 {
 	struct wil6210_priv *wil = wdev_to_wil(wdev);
 	struct nlattr *tb[QCA_ATTR_WIL_MAX + 1];
 	struct wil_nl_60g_send_receive_wmi *cmd;
-	struct wil_nl_60g_debug_force_wmi debug_force_wmi;
+	struct wil_nl_60g_subcmd_hdr_force_wmi debug_force_wmi;
 	int rc, len;
 	u32 wil_nl_60g_cmd_type, publish;
 
@@ -4233,20 +4476,20 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 			    publish ? "enabled" : "disabled");
 		wil_nl_60g_fw_state_evt(wil);
 		break;
-	case NL_60G_CMD_DEBUG:
+	case NL_60G_CMD_GENERIC:
 		if (!tb[WIL_ATTR_60G_BUF]) {
 			wil_err(wil, "Invalid nl_60g_cmd spec\n");
 			return -EINVAL;
 		}
 
 		len = nla_len(tb[WIL_ATTR_60G_BUF]);
-		if (len < sizeof(struct wil_nl_60g_debug)) {
+		if (len < sizeof(struct wil_nl_60g_subcmd_hdr)) {
 			wil_err(wil, "cmd buffer too short %d\n", len);
 			return -EINVAL;
 		}
 
 		memcpy(&debug_force_wmi, nla_data(tb[WIL_ATTR_60G_BUF]),
-		       sizeof(struct wil_nl_60g_debug));
+		       sizeof(struct wil_nl_60g_subcmd_hdr));
 
 		switch (debug_force_wmi.hdr.cmd_id) {
 		case NL_60G_DBG_FORCE_WMI_SEND:
@@ -4295,6 +4538,11 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 			       BIT(NL_60G_DRIVER_CAPA_IOCTL_WRITE) |
 #endif
 			       BIT(NL_60G_DRIVER_CAPA_WMI_OVER_NL);
+
+			if (test_bit(WMI_FW_CAPABILITY_PMC_LOG,
+				     wil->fw_capabilities))
+				capa |= BIT(NL_60G_DRIVER_CAPA_PMC_CONTINUOUS);
+
 			rc = nla_put_u32(skb,
 					 QCA_WLAN_VENDOR_ATTR_DRIVER_CAPA,
 					 capa);
@@ -4341,6 +4589,22 @@ static int wil_nl_60g_handle_cmd(struct wiphy *wiphy, struct wireless_dev *wdev,
 				      cmd->buf, cmd->buf_len);
 
 		kfree(cmd);
+		break;
+	case NL_60G_CMD_PMC:
+		if (!tb[WIL_ATTR_60G_BUF]) {
+			wil_err(wil, "Invalid nl_60g_cmd spec\n");
+			return -EINVAL;
+		}
+
+		len = nla_len(tb[WIL_ATTR_60G_BUF]);
+		if (len < sizeof(struct wil_nl_60g_subcmd_hdr)) {
+			wil_err(wil, "cmd buffer too short %d\n", len);
+			return -EINVAL;
+		}
+
+		rc =  wil_nl_60g_pmc_handle(wil,
+					    nla_data(tb[WIL_ATTR_60G_BUF]),
+					    len);
 		break;
 	default:
 		rc = -EINVAL;

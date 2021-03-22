@@ -43,5 +43,8 @@ int wil_pmcring_read(struct seq_file *s, void *data);
 int wil_pmc_ext_get_data(struct wil6210_priv *wil, u8 *buffer, u32 buffer_size,
 			 u32 *bytes, u8 *extra_data, u32 *first_desc,
 			 u32 *last_desc);
+int wil_pmc_ext_get_data_manual(struct wil6210_priv *wil, u8 *buffer,
+				u32 buffer_size, u32 *bytes, u32 first_desc,
+				u32 *last_desc);
 void wil_pmc_ext_pre_config(struct wil6210_priv *wil);
 int wil_pmc_ext_post_config(struct wil6210_priv *wil);

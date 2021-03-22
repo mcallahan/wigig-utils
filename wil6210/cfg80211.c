@@ -151,6 +151,7 @@ enum wil_nl_60g_pmc_cmd {
 	NL_60G_PMC_FREE,
 	NL_60G_PMC_GET_DATA,
 	NL_60G_PMC_GET_DESC_DATA,
+	NL_60G_PMC_GET_DATA_MANUAL,
 };
 
 enum wil_nl_60g_generic_cmd {
@@ -266,6 +267,14 @@ struct wil_nl_60g_pmc_get_data {
 	struct wil_nl_60g_subcmd_hdr hdr; /* contains command id */
 	/* number of bytes to read. 0 to get available bytes to read */
 	u32 num_bytes;
+};
+
+/* used for NL_60G_PMC_GET_DATA_MANUAL */
+struct wil_nl_60g_pmc_get_data_manual {
+	struct wil_nl_60g_subcmd_hdr hdr; /* contains command id */
+	/* number of bytes to read */
+	u32 num_bytes;
+	u32 first_desc;
 };
 
 static int wil_num_supported_channels(struct wil6210_priv *wil)
@@ -4384,6 +4393,95 @@ out_free:
 	return rc;
 }
 
+/*
+ * handle PMC_GET_DATA_MANUAL command
+ */
+static int
+wil_nl_60g_pmc_handle_data_command_manual(struct wil6210_priv *wil,
+					  struct wil_nl_60g_subcmd_hdr *hdr,
+					  int len)
+{
+	struct sk_buff *skb;
+	u32 buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
+	int rc = 0;
+	struct wil_nl_60g_pmc_get_data_manual *pmc_get_data_cmd;
+	struct nlattr *data_buffer;
+
+	if (len < sizeof(struct wil_nl_60g_pmc_get_data_manual))
+		return -EINVAL;
+
+	pmc_get_data_cmd = (struct wil_nl_60g_pmc_get_data_manual *)hdr;
+
+	wil_dbg_misc(wil,
+		     "NL_60G_PMC_GET_DATA_MANUAL. request get data buffer size=%d first_desc=%d\n",
+		     pmc_get_data_cmd->num_bytes, pmc_get_data_cmd->first_desc);
+
+	skb = cfg80211_vendor_cmd_alloc_reply_skb(wil_to_wiphy(wil),
+						  NL_60G_MAX_PMC_PAYLOAD);
+	if (!skb)
+		return -ENOMEM;
+
+	if (pmc_get_data_cmd->num_bytes < wil->pmc.descriptor_size) {
+		rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
+				 wil->pmc.descriptor_size);
+		if (rc) {
+			wil_err(wil,
+				"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH\n");
+			goto out_free;
+		}
+		rc = -EINVAL;
+		goto out_send;
+	}
+
+	buffer_length = min_t(uint32_t, NL_60G_MAX_PMC_PAYLOAD,
+			      pmc_get_data_cmd->num_bytes);
+	data_buffer = nla_reserve(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
+				  buffer_length);
+	if (!data_buffer) {
+		kfree_skb(skb);
+		return -ENOMEM;
+	}
+
+	first_desc = pmc_get_data_cmd->first_desc;
+
+	rc = wil_pmc_ext_get_data_manual(wil, nla_data(data_buffer),
+					 buffer_length, &bytes, first_desc,
+					 &last_desc);
+	if (rc)
+		goto out_free;
+
+	/* Update nl attr len to actual bytes copied*/
+	data_buffer->nla_len = nla_attr_size(bytes);
+
+	rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
+			 first_desc);
+	if (rc) {
+		wil_err(wil,
+			"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC\n");
+		goto out_free;
+	}
+
+	rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC,
+			 last_desc);
+	if (rc) {
+		wil_err(wil,
+			"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC\n");
+		goto out_free;
+	}
+
+out_send:
+	wil_dbg_misc(wil,
+		     "NL_60G_PMC_GET_DATA_MANUAL succeeded. bytes written=%d\n",
+		     bytes);
+
+	cfg80211_vendor_cmd_reply(skb);
+	return rc;
+
+out_free:
+	kfree_skb(skb);
+	return rc;
+}
+
 static int wil_nl_60g_pmc_handle(struct wil6210_priv *wil,
 				 struct wil_nl_60g_subcmd_hdr *hdr,
 				 int len)
@@ -4421,6 +4519,9 @@ static int wil_nl_60g_pmc_handle(struct wil6210_priv *wil,
 		break;
 	case NL_60G_PMC_GET_DATA:
 		rc = wil_nl_60g_pmc_handle_data_command(wil, hdr, len);
+		break;
+	case NL_60G_PMC_GET_DATA_MANUAL:
+		rc = wil_nl_60g_pmc_handle_data_command_manual(wil, hdr, len);
 		break;
 	case NL_60G_PMC_GET_DESC_DATA:
 		return -EOPNOTSUPP;

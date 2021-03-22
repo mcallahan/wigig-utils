@@ -448,6 +448,80 @@ out:
 	return (pmc->last_cmd_status < 0) ? pmc->last_cmd_status : 0;
 }
 
+/* wil_pmc_ext_get_data_manual: reads PMC data from the ring descriptors into
+ * a buffer.
+ */
+int wil_pmc_ext_get_data_manual(struct wil6210_priv *wil, char *buffer,
+				size_t buffer_size, uint32_t *bytes,
+				uint32_t first_desc, uint32_t *last_desc)
+{
+	struct pmc_ctx *pmc = &wil->pmc;
+	int i;
+	uint32_t bytes_count = 0;
+	uint16_t length;
+
+	if (!wil->pmc_continuous_mode) {
+		wil_err(wil, "continuous PMC not supported\n");
+		pmc->last_cmd_status = -EINVAL;
+		return pmc->last_cmd_status;
+	}
+
+	mutex_lock(&pmc->lock);
+
+	if (!wil_is_pmc_allocated(pmc)) {
+		wil_dbg_misc(wil, "error, pmc is not ready!\n");
+		pmc->last_cmd_status = -EPERM;
+		goto out;
+	}
+
+	if (!buffer_size || !buffer || !last_desc) {
+		wil_err(wil, "last desc or buffer should not be null, buffer_size=%d\n",
+			buffer_size);
+		pmc->last_cmd_status = -EINVAL;
+		goto out;
+	}
+
+	if (first_desc >= pmc->num_descriptors) {
+		wil_err(wil, "error, first_desc=%d, number of descriptors=%d\n",
+			first_desc, pmc->num_descriptors);
+		pmc->last_cmd_status = -EINVAL;
+		goto out;
+	}
+
+	/* read the data into the buffer */
+	for (i = first_desc; bytes_count < buffer_size;) {
+		length = le16_to_cpu(pmc->pring_va[i].dma.length);
+
+		/* check that there is a room for the current descriptor data.
+		 */
+		if (length + bytes_count > buffer_size)
+			break;
+
+		/* copy PMC data from descriptor payload to the buffer. Room
+		 * for the data was guaranteed.
+		 */
+		memcpy(buffer + bytes_count, pmc->descriptors[i].va, length);
+		wil_dbg_misc(wil, "PMC descriptor=%d data length=%d\n", i,
+			     length);
+
+		wil_hex_dump_misc("descriptor ", DUMP_PREFIX_OFFSET, 16, 1,
+				  &pmc->pring_va[i],
+				  sizeof(struct vring_tx_desc), true);
+
+		wil_hex_dump_misc("PMC data ", DUMP_PREFIX_OFFSET, 16, 1,
+				  pmc->descriptors[i].va, length, true);
+
+		i++;
+		i %= pmc->num_descriptors;
+		bytes_count += length;
+	}
+	*bytes = bytes_count;
+	*last_desc = i;
+out:
+	mutex_unlock(&pmc->lock);
+	return (pmc->last_cmd_status < 0) ? pmc->last_cmd_status : 0;
+}
+
 /**
  * read descriptors data or descriptors, starting from offset with
  * specified size.

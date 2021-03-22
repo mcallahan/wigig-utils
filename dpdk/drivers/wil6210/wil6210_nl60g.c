@@ -160,6 +160,7 @@ enum nl60g_pmc_cmd {
 	NL_60G_PMC_FREE,
 	NL_60G_PMC_GET_DATA,
 	NL_60G_PMC_GET_DESC_DATA,
+	NL_60G_PMC_GET_DATA_MANUAL,
 };
 
 /* this structure has to be packed because buf_len field
@@ -311,6 +312,14 @@ struct nl60g_pmc_get_data {
 	uint32_t num_bytes;
 };
 
+/* used for NL_60G_PMC_GET_DATA_MANUAL */
+struct nl60g_pmc_get_data_manual {
+	struct nl60g_subcmd_hdr hdr; /* contains command id */
+	/* number of bytes to read */
+	uint32_t num_bytes;
+	uint32_t first_desc;
+};
+
 struct nl60g_cmd_def {
 	enum nl60g_cmd_type cmd;
 	/* true if need WIL_ATTR_60G_BUF */
@@ -332,6 +341,7 @@ static struct nl60g_subcmd_def nl60g_pmc_cmds[] = {
 	{ NL_60G_PMC_FREE, sizeof(struct nl60g_subcmd_hdr) },
 	{ NL_60G_PMC_GET_DATA, sizeof(struct nl60g_pmc_get_data) },
 	{ NL_60G_PMC_GET_DESC_DATA, sizeof(struct nl60g_pmc_get_data) },
+	{ NL_60G_PMC_GET_DATA_MANUAL, sizeof(struct nl60g_pmc_get_data_manual) },
 	{ 0, 0 },
 };
 
@@ -978,6 +988,98 @@ out_free:
 }
 
 /*
+ * handle PMC_GET_DATA_MANUAL command
+ */
+static int
+nl60g_pmc_handle_data_command_manual(struct nl60g_port *port,
+				     struct nl_msg *msg,
+				     struct nl60g_subcmd_hdr *pmc_cmd,
+				     uint32_t len)
+{
+	struct nl60g_state *nl60g = port->nl60g;
+	struct wil6210_priv *wil = nl60g->wil;
+	struct nl_msg *creply = NULL;
+	uint32_t buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
+	uint32_t num_bytes;
+	int rc = 0;
+	struct nl60g_pmc_get_data_manual *pmc_get_data_cmd;
+	struct nlattr *vendor_data, *data_buffer;
+
+	if (len < sizeof(struct nl60g_pmc_get_data_manual))
+		return -NLE_INVAL;
+
+	pmc_get_data_cmd = (struct nl60g_pmc_get_data_manual *)pmc_cmd;
+	num_bytes = pmc_get_data_cmd->num_bytes;
+
+	wil_dbg_misc(wil,
+		     "NL_60G_PMC_GET_DATA_MANUAL. request get data buffer size=%d first_desc=%d\n",
+		     num_bytes, pmc_get_data_cmd->first_desc);
+
+	creply = nl60g_alloc_vendor_reply(NL60G_MAX_PMC_PAYLOAD, msg,
+					  &vendor_data);
+	if (!creply)
+		return -NLE_NOMEM;
+
+	if (num_bytes < wil->pmc.descriptor_size) {
+		if (nla_put_u32(creply,
+				QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH,
+				wil->pmc.descriptor_size)) {
+			wil_err(wil,
+				"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_MIN_DATA_LENGTH\n");
+			rc = -NLE_NOMEM;
+			goto out_free;
+		}
+		goto out_send;
+	}
+
+	buffer_length = min_t(uint32_t, NL60G_MAX_PMC_PAYLOAD, num_bytes);
+	data_buffer = nla_reserve(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
+				  buffer_length);
+	if (!data_buffer) {
+		wil_err(wil, "fail to write data\n");
+		rc = -NLE_NOMEM;
+		goto out_free;
+	}
+
+	first_desc = pmc_get_data_cmd->first_desc;
+
+	rc = wil_pmc_ext_get_data_manual(wil, nla_data(data_buffer),
+					 buffer_length, &bytes, first_desc,
+					 &last_desc);
+	if (rc)
+		goto out_free;
+
+	/* Update nl attr len to actual bytes copied*/
+	data_buffer->nla_len = nla_attr_size(bytes);
+
+	rc = nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
+			 first_desc);
+	if (rc) {
+		wil_err(wil,
+			"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC\n");
+		goto out_free;
+	}
+
+	rc = nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC,
+			 last_desc);
+	if (rc) {
+		wil_err(wil,
+			"failed to fill QCA_WLAN_VENDOR_ATTR_PMC_DATA_LAST_DESC\n");
+		goto out_free;
+	}
+out_send:
+	wil_dbg_misc(wil,
+		     "NL_60G_PMC_GET_DATA_MANUAL succeeded. bytes written=%d\n",
+		     bytes);
+
+	nla_nest_end(creply, vendor_data);
+	nl_send_auto(port->sk, creply);
+out_free:
+	nlmsg_free(creply);
+	return rc;
+}
+
+/*
  * handle PMC GET_DATA/GET_DESC_DATA command
  */
 static int
@@ -1148,6 +1250,15 @@ nl60g_handle_pmc_command(struct nl60g_port *port, struct nl_msg *msg,
 			rc = -NLE_OPNOTSUPP;
 		else
 			rc = nl60g_handle_pmc_data_command(port, msg, pmc_cmd);
+		break;
+	case NL_60G_PMC_GET_DATA_MANUAL:
+		if (wil->pmc_continuous_mode) {
+			len = nla_len(tb[WIL_ATTR_60G_BUF]);
+			rc = nl60g_pmc_handle_data_command_manual(port, msg,
+								  pmc_cmd, len);
+		} else {
+			rc = -NLE_OPNOTSUPP;
+		}
 		break;
 	default:
 		wil_err(wil, "unknown PMC command: %d\n", (int)pmc_cmd->cmd_id);

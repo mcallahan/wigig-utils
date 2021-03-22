@@ -64,5 +64,8 @@ int wil_pmc_ext_post_config(struct wil6210_priv *wil);
 int wil_pmc_ext_get_data(struct wil6210_priv *wil, char *buf, size_t size,
 			 uint32_t *bytes, bool *extra_data,
 			 uint32_t *first_desc, uint32_t *last_desc);
+int wil_pmc_ext_get_data_manual(struct wil6210_priv *wil, char *buffer,
+				size_t buffer_size, uint32_t *bytes,
+				uint32_t first_desc, uint32_t *last_desc);
 
 #endif /* WIL6210_PMC_H */

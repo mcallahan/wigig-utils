@@ -46,8 +46,8 @@ dhd_setup_queues(struct dhd_state *dhd)
 {
 	struct sockaddr_ll sockaddr;
 	struct tpacket_req *req;
-	struct dhd_rx_queue *rx_queue;
-	struct dhd_tx_queue *tx_queue;
+	struct dhd_rx_queue *rx_queue = NULL;
+	struct dhd_tx_queue *tx_queue = NULL;
 	int i, q, qsockfd, nb_queues = DHD_NUM_QUEUES;
 	int rc, tpver, discard, qdisc_bypass;
 	size_t rdsize;
@@ -202,6 +202,14 @@ dhd_setup_queues(struct dhd_state *dhd)
 	return 0;
 
 error:
+	if (rx_queue != NULL && rx_queue->rd != NULL) {
+		free(rx_queue->rd);
+		rx_queue->rd = NULL;
+	}
+	if (tx_queue != NULL && tx_queue->rd != NULL) {
+		free(tx_queue->rd);
+		tx_queue->rd = NULL;
+	}
 	return rc;
 }
 

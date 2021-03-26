@@ -1110,6 +1110,7 @@ printf_core(struct wil_fw_log_state *log_s, FILE *f,
 			p = max((size_t)p, 2 * sizeof(void *));
 			t = 'x';
 			fl |= ALT_FORM;
+			/* fallthrough */
 		case 'x':
 		case 'X':
 			a = fmt_x(arg.i, z, t & 32);
@@ -1153,7 +1154,9 @@ printf_core(struct wil_fw_log_state *log_s, FILE *f,
 		case 'm':
 			if (1)
 				a = strerror(errno);
+				/* fallthrough */
 			else
+				/* fallthrough */
 		case 's':
 				a = (char *)(arg.p ? arg.p : "(null)");
 			z = a + string_length(a, p < 0 ? INT_MAX : p);
@@ -1167,6 +1170,7 @@ printf_core(struct wil_fw_log_state *log_s, FILE *f,
 			wc[1] = 0;
 			arg.p = wc;
 			p = -1;
+			/* fallthrough */
 		case 'S':
 			ws = arg.p;
 			for (i = l = 0;
@@ -1755,6 +1759,7 @@ close_pipe:
 			wil->log_pipe[i] = -1;
 		}
 	}
+	return rc;
 }
 
 void
@@ -1771,7 +1776,7 @@ wil_fw_set_log_offset_entries(struct wil6210_priv *wil)
 	u32 rgf_addr[] = { RGF_USER_USAGE_1, RGF_USER_USAGE_2 };
 	int rc, i;
 	void *data;
-	struct fw_map *fw_peri, *uc_data, *rgf_map;
+	struct fw_map *fw_peri, *uc_data;
 
 	fw_peri = wil_find_fw_mapping("fw_peri");
 	if (!fw_peri) {

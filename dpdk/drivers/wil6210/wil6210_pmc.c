@@ -538,8 +538,8 @@ __wil_pmc_read(struct wil_pmc_reader_ctx *pmcr, char *buf, size_t size,
 {
 	struct wil6210_priv *wil = pmcr->wil;
 	struct pmc_ctx *pmc = &wil->pmc;
-	uint32_t total_size, unit_size, written, desc;
-	ssize_t asize;
+	uint32_t total_size, written, desc;
+	ssize_t asize = 0;
 
 	if (wil->pmc_continuous_mode) {
 		wil_err(wil, "legacy PMC is not supported\n");
@@ -596,7 +596,6 @@ out:
 static ssize_t wil_pmc_read(void *ctx, char *buf, size_t size)
 {
 	struct wil_pmc_reader_ctx *pmcr = ctx;
-	struct wil6210_priv *wil = pmcr->wil;
 	ssize_t rc;
 
 	rc = __wil_pmc_read(pmcr, buf, size, pmcr->offset, false);
@@ -691,7 +690,6 @@ static ssize_t wil_pmc_available(void *ctx)
 static ssize_t wil_pmcring_read(void *ctx, char *buf, size_t size)
 {
 	struct wil_pmc_reader_ctx *pmcr = ctx;
-	struct wil6210_priv *wil = pmcr->wil;
 	ssize_t rc;
 
 	rc = __wil_pmc_read(pmcr, buf, size, pmcr->offset, true);

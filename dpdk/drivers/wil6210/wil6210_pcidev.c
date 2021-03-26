@@ -684,6 +684,7 @@ static int wil_if_pcie_enable(struct wil6210_priv *wil)
 	return rc;
 }
 
+#ifndef WIL6210_PMD
 static int wil_if_pcie_disable(struct wil6210_priv *wil)
 {
 	//struct rte_pci_device *pdev = wil->pdev;
@@ -698,6 +699,7 @@ static int wil_if_pcie_disable(struct wil6210_priv *wil)
 	/* TODO: disable HW */
 	return 0;
 }
+#endif
 
 static int wil_platform_rop_ramdump(void *wil_handle, void *buf, uint32_t size)
 {

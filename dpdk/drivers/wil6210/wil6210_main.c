@@ -558,7 +558,7 @@ void wil_delete_peers(struct wil6210_priv *wil)
 	wil_info(wil, "Deleting all peers\n");
 
 	mutex_lock(&wil->mutex);
-	for (int i = 0; i < WIL6210_MAX_CID; i++) {
+	for (i = 0; i < WIL6210_MAX_CID; i++) {
 		sta = &wil->sta[i];
 		if (sta->status == wil_sta_unused)
 			continue;
@@ -592,6 +592,7 @@ void wil_delete_peers(struct wil6210_priv *wil)
 	mutex_unlock(&wil->mutex);
 }
 
+#ifndef WIL6210_PMD
 static int wil_wait_for_recovery(struct wil6210_priv *wil)
 {
 	if (wait_event_interruptible(wil->wq, wil->recovery_state !=
@@ -606,6 +607,7 @@ static int wil_wait_for_recovery(struct wil6210_priv *wil)
 	wil_info(wil, "Proceed with recovery\n");
 	return 0;
 }
+#endif
 
 void wil_set_recovery_state(struct wil6210_priv *wil, int state)
 {
@@ -2057,7 +2059,6 @@ int __wil_up(struct wil6210_priv *wil)
 	struct net_device *ndev = wil->main_ndev;
 	struct wireless_dev *wdev = ndev->ieee80211_ptr;
 	int rc;
-	u16 val;
 	u32 pcie_lane_count, pcie_gen;
 
 	WARN_ON(!mutex_is_locked(&wil->mutex));

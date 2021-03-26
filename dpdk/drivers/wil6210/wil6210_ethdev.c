@@ -213,7 +213,6 @@ wil6210_tx_get_pipe_size(void *q, uint16_t *size,
 	if (unlikely(q == NULL || size == NULL
 			|| nb_peers > ARRAY_SIZE(internals->tx_ethdev_queues)))
 		return -EINVAL;
-	struct wil6210_priv *wil = internals->wil;
 
 	for (int peer=0; peer < nb_peers; peer++) {
 		*size++ = wil_tx_ring_config_size();
@@ -239,7 +238,6 @@ wil6210_tx_feedback(void *q, uint32_t *avail, uint32_t *pending,
 	struct ethdev_tx_queue *txq;
 	struct wil6210_priv *wil = NULL;
 	struct wil_ring *ring;
-	unsigned i;
 	int rc = 0;
 
 	wil = internals->wil;
@@ -351,7 +349,7 @@ wil6210_send_queue_stats(void *q, struct rte_eth_tx_pending_stats *pending,
 	struct pmd_internals *internals = q;
 	struct wil6210_priv *wil = NULL;
 	struct ethdev_tx_queue *txq;
-	int peer, num_links;
+	int peer;
 	struct wil_ring *ring;
 	int ring_index;
 	struct wil_ring_tx_data *txdata;
@@ -648,9 +646,8 @@ wil_tx_burst(void *qdata, struct rte_mbuf **tx_pkts, uint16_t nb_pkts)
 	internals = qdata;
 	tx_total = 0;
 	tx_left = nb_pkts;
-	struct wil6210_priv *wil = internals->wil;
-
 #ifdef ENABLE_PMC_STATS
+	struct wil6210_priv *wil = internals->wil;
 	u64 prev_count[RTE_PMC_NUM_COUNTERS];
 	/* Use first index of first peer */
 	u64 start = rte_get_timer_cycles();

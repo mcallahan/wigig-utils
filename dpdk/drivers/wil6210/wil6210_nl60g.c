@@ -1872,7 +1872,6 @@ nl60g_close_connection(struct nl60g_port *port)
 {
 	struct nl60g_state *nl60g = port->nl60g;
 	struct wil6210_priv *wil = nl60g->wil;
-	int i, j;
 
 	/* perform some actions without the lock to avoid
 	 * delaying other operations too much (such as sending events).
@@ -1991,7 +1990,7 @@ nl60g_start_poll_worker(struct nl60g_state *nl60g)
 {
 	struct wil6210_priv *wil = nl60g->wil;
 	rte_cpuset_t cpuset;
-	int i, rc;
+	int rc;
 
 	rc = socketpair(AF_UNIX, SOCK_STREAM, 0, nl60g->exit_sockets);
 	if (rc == -1) {

@@ -2332,7 +2332,6 @@ wmi_call_async(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf, u16 len,
 	       u16 reply_id, void *reply, u16 reply_size, u64 to_msec)
 {
 	int rc;
-	unsigned long remain;
 	ulong flags;
 	u64 curr_time_ms;
 

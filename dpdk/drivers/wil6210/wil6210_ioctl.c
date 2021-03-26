@@ -49,7 +49,7 @@ wil_try_ioctl_async(struct wil6210_priv *wil, u8 *req_buf, u16 req_len,
 		struct wmi_cmd_hdr wmi;
 		struct wmi_internal_fw_ioctl_event evt;
 	} __packed *reply;
-	u16 cmd_len, reply_len, evt_len;
+	u16 cmd_len, reply_len;
 	int rc;
 
 	vif = ndev_to_vif(wil->main_ndev);

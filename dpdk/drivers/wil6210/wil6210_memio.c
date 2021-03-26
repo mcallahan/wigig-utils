@@ -100,7 +100,6 @@ int wil_memio_dword(struct wil6210_priv *wil, struct wil_memio *io)
 
 int wil_memio_block(struct wil6210_priv *wil, struct wil_memio_block *io)
 {
-	void *block;
 	void __iomem *a;
 	int rc = 0;
 
@@ -122,7 +121,6 @@ int wil_memio_block(struct wil6210_priv *wil, struct wil_memio_block *io)
 
 	rc = wil_mem_access_lock(wil);
 	if (rc) {
-		kfree(block);
 		return rc;
 	}
 
@@ -143,7 +141,6 @@ int wil_memio_block(struct wil6210_priv *wil, struct wil_memio_block *io)
 		break;
 	}
 
-out_unlock:
 	wil_mem_access_unlock(wil);
 	return rc;
 }

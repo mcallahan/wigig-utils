@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2014,2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2019,2021 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -47,7 +47,7 @@ static void __iomem *wil_ioc_addr(struct wil6210_priv *wil, uint32_t addr,
 	}
 
 	off = a - wil->csr;
-	if (size >= wil->bar_size - off) {
+	if (size > wil->bar_size - off) {
 		wil_err(wil, "Requested block does not fit into memory: "
 			"off = 0x%08x size = 0x%08x\n", off, size);
 		return NULL;

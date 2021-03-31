@@ -1456,6 +1456,7 @@ int wmi_call(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf, u16 len,
 int wmi_call_async(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf,
 		   u16 len, u16 reply_id, void *reply, u16 reply_size, u64 to_msec);
 void wmi_call_async_timeout(struct wil6210_priv *wil);
+void wmi_mutex_lock_with_async_check(struct wil6210_priv *wil);
 void wmi_event_worker(struct work_struct *work);
 void wmi_event_flush(struct wil6210_priv *wil);
 int wmi_set_ssid(struct wil6210_vif *vif, u8 ssid_len, const void *ssid);

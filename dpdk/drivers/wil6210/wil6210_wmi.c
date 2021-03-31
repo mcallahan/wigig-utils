@@ -772,8 +772,7 @@ int wmi_send(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf, u16 len)
 {
 	int rc;
 
-	// TODO: check for async wmi call timeout
-	mutex_lock(&wil->wmi_mutex);
+	wmi_mutex_lock_with_async_check(wil);
 	rc = __wmi_send(wil, cmdid, mid, buf, len, false, true);
 	mutex_unlock(&wil->wmi_mutex);
 
@@ -785,8 +784,7 @@ int wmi_force_send(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf,
 {
 	int rc;
 
-	// TODO: check for async wmi call timeout
-	mutex_lock(&wil->wmi_mutex);
+	wmi_mutex_lock_with_async_check(wil);
 	rc = __wmi_send(wil, cmdid, mid, buf, len, true, true);
 	mutex_unlock(&wil->wmi_mutex);
 
@@ -2236,8 +2234,7 @@ int wmi_call(struct wil6210_priv *wil, u16 cmdid, u8 mid, void *buf, u16 len,
 	unsigned long remain;
 	ulong flags;
 
-	// TODO: check for async wmi call timeout
-	mutex_lock(&wil->wmi_mutex);
+	wmi_mutex_lock_with_async_check(wil);
 
 	spin_lock_irqsave(&wil->wmi_ev_lock, flags);
 	wil->reply_id = reply_id;
@@ -2398,8 +2395,8 @@ static void wmi_call_async_completion(struct wil6210_priv *wil)
 	mutex_lock(&wil->wmi_async_mutex);
 	if (!wil->wmi_async_pending) {
 		wil_err(wil,
-			"wmi_call_async_completion called, but there is no currently \
-			pending async wmi call\n");
+			"wmi_call_async_completion called, but there is no currently "
+			"pending async wmi call\n");
 		mutex_unlock(&wil->wmi_async_mutex);
 		return;
 	}
@@ -2435,6 +2432,10 @@ static void wmi_call_async_completion(struct wil6210_priv *wil)
 	mutex_unlock(&wil->wmi_async_mutex);
 }
 
+/**
+ * Handle timeout for an async wmi call by restoring async wmi call state
+ * and releasing wmi mutex.
+ */
 void wmi_call_async_timeout(struct wil6210_priv *wil)
 {
 	u64 curr_time_ms;
@@ -2446,8 +2447,8 @@ void wmi_call_async_timeout(struct wil6210_priv *wil)
 	rc = mutex_trylock(&wil->wmi_async_mutex);
 	if (rc) {
 		wil_err(wil,
-			"Attempting to handle timeout for async wmi call, but it is in \
-			the process of being completed or handling timeout already\n");
+			"Attempting to handle timeout for async wmi call, but it is in "
+			"the process of being completed or handling timeout already\n");
 		return;
 	}
 
@@ -2455,8 +2456,8 @@ void wmi_call_async_timeout(struct wil6210_priv *wil)
 	if (rc == 0 || !wil->wmi_async_pending) {
 		/* timeout call to restore state and unlock is not necessary */
 		wil_err(wil,
-			"Attempting to handle timeout for async wmi call, but \
-			there is no currently pending async wmi call\n");
+			"Attempting to handle timeout for async wmi call, but "
+			"there is no currently pending async wmi call\n");
 		goto out;
 	}
 
@@ -2485,6 +2486,27 @@ void wmi_call_async_timeout(struct wil6210_priv *wil)
 out:
 	mutex_unlock(&wil->wmi_mutex);
 	mutex_unlock(&wil->wmi_async_mutex);
+}
+
+/**
+ * Lock the wmi mutex, making sure to check for async wmi call timeouts.
+ */
+void wmi_mutex_lock_with_async_check(struct wil6210_priv *wil)
+{
+	int rc;
+	u64 curr_time_ms;
+
+	rc = mutex_trylock(&wil->wmi_mutex);
+
+	while (rc != 0) {
+		curr_time_ms = rte_get_timer_cycles() * wil->nano_per_cycle / 1000000;
+		if (wil->wmi_async_pending &&
+		    curr_time_ms - wil->wmi_async_sent_time_ms > wil->wmi_to_msec) {
+			wmi_call_async_timeout(wil);
+		}
+		rc = mutex_trylock(&wil->wmi_mutex);
+		msleep(20);
+	}
 }
 
 int wmi_echo(struct wil6210_priv *wil)

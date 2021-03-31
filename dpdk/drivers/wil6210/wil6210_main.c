@@ -1865,8 +1865,7 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 	down_write(&wil->mem_lock);
 
 	/* prevent NAPI from being scheduled and prevent wmi commands */
-	// TODO: check for async wmi call timeout
-	mutex_lock(&wil->wmi_mutex);
+	wmi_mutex_lock_with_async_check(wil);
 	if (test_bit(wil_status_suspending, wil->status))
 		status_flags |= BIT(wil_status_suspending);
 	bitmap_and(wil->status, wil->status, &status_flags,

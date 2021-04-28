@@ -935,6 +935,8 @@ wil6210_dev_init(struct rte_eth_dev *eth_dev)
 		goto if_free;
 	}
 
+	wil_clear_fw_log_addr(wil);
+
 	/* in case of WMI-only FW, perform full reset and FW loading */
 	/* do FW loading in in DPDK case as well, no reason to wait */
 	if (test_bit(WMI_FW_CAPABILITY_WMI_ONLY, wil->fw_capabilities)) {

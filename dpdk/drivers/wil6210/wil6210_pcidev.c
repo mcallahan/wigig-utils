@@ -706,7 +706,7 @@ static int wil_platform_rop_ramdump(void *wil_handle, void *buf, uint32_t size)
 	if (!wil)
 		return -EINVAL;
 
-	return wil_fw_copy_crash_dump(wil, 0, 0);
+	return wil_fw_copy_crash_dump(wil);
 }
 
 static int wil_platform_rop_fw_recovery(void *wil_handle)

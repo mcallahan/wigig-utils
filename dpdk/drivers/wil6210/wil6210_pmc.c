@@ -952,3 +952,91 @@ const char *wil_pmc_ext_get_status(struct wil6210_priv *wil)
 		return "unknown status";
 	}
 }
+
+uint32_t wil_pmc_ext_get_data_size(struct wil6210_priv *wil)
+{
+	struct pmc_ctx *pmc = &wil->pmc;
+	uint32_t size;
+
+	if (!wil->pmc_continuous_mode) {
+		wil_dbg_misc(wil, "continuous PMC not supported\n");
+		return 0;
+	}
+
+	mutex_lock(&pmc->lock);
+
+	if (!wil_is_pmc_allocated(pmc)) {
+		wil_dbg_misc(wil, "PMC host mode is not enabled\n");
+		mutex_unlock(&pmc->lock);
+		return 0;
+	}
+	size = pmc->descriptor_size * pmc->num_descriptors;
+	mutex_unlock(&pmc->lock);
+
+	return size;
+}
+
+int
+wil_pmc_ext_copy_host_data(struct wil6210_priv *wil, void *dest, uint32_t size)
+{
+	struct pmc_ctx *pmc = &wil->pmc;
+	int i, count;
+	uint32_t num_of_desc, first_desc_index, bytes_count = 0;
+
+	if (!wil->pmc_continuous_mode) {
+		wil_err(wil, "continuous PMC not supported\n");
+		return 0;
+	}
+
+	mutex_lock(&pmc->lock);
+
+	if (!wil_is_pmc_allocated(pmc)) {
+		wil_err(wil, "PMC host mode is not enabled\n");
+		mutex_unlock(&pmc->lock);
+		return -EPERM;
+	}
+
+	if (size < pmc->descriptor_size) {
+		wil_err(wil,
+			"PMC can not copy host memory, available size = %u\n",
+			size);
+		mutex_unlock(&pmc->lock);
+		return -EINVAL;
+	}
+
+	/* update the sw head, read the hw tail register, in case of
+	 * sys_assert before FW_READY event, the sw_head register might be
+	 * invalid and initialized to 0.
+	 */
+	if (pmc->sw_head_reg)
+		pmc->sw_head = wil_r(wil, pmc->sw_head_reg);
+
+	/* calculate the number of descriptors to copy */
+	num_of_desc = size / pmc->descriptor_size;
+	first_desc_index = pmc->sw_head;
+
+	if (num_of_desc >= pmc->num_descriptors)
+		num_of_desc = pmc->num_descriptors;
+	else
+		first_desc_index = (pmc->sw_head + pmc->num_descriptors -
+				    num_of_desc) % pmc->num_descriptors;
+
+	wil_dbg_misc(wil, "first_desc=%d, sw_head=%d num_of_desc=%d size=%d",
+		     first_desc_index, pmc->sw_head, num_of_desc, size);
+
+	for (i = first_desc_index, count = 0; count < num_of_desc;
+	     count++, i++, i %= pmc->num_descriptors) {
+		u16 length = le16_to_cpu(pmc->pring_va[i].dma.length);
+
+		memcpy(dest + bytes_count, pmc->descriptors[i].va,
+		       length);
+		bytes_count += length;
+	}
+
+	wil_info(wil,
+		 "Save PMC host data, total memory copied is %u",
+		 bytes_count);
+	mutex_unlock(&pmc->lock);
+
+	return 0;
+}

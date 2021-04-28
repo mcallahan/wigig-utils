@@ -1222,22 +1222,28 @@ nl60g_handle_pmc_command(struct nl60g_port *port, struct nl_msg *msg,
 		num_descs = pmc_alloc_cmd->num_desc;
 		payload_size = pmc_alloc_cmd->payload_size;
 
-		if (wil->pmc_continuous_mode)
-			wil_pmc_ext_alloc(wil, num_descs, payload_size);
-		else
+		if (wil->pmc_continuous_mode) {
+			rc = wil_pmc_ext_alloc(wil, num_descs, payload_size);
+			if (rc)
+				rc = -nl_syserr2nlerr(rc);
+		} else {
 			wil_pmc_alloc(wil, num_descs, payload_size);
 
-		if (pmc->last_cmd_status)
-			rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+			if (pmc->last_cmd_status)
+				rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+		}
 		break;
 	case NL_60G_PMC_FREE:
-		if (wil->pmc_continuous_mode)
-			wil_pmc_ext_free(wil);
-		else
+		if (wil->pmc_continuous_mode) {
+			rc = wil_pmc_ext_free(wil);
+			if (rc)
+				rc = -nl_syserr2nlerr(rc);
+		} else {
 			wil_pmc_free(wil);
 
-		if (pmc->last_cmd_status)
-			rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+			if (pmc->last_cmd_status)
+				rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+		}
 
 		wil_pmc_free_reader(port->pmc_reader_ctx);
 		port->pmc_reader_ctx = NULL;

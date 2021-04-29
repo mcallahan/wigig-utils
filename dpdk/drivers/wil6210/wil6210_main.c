@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2019-2020, Facebook, Inc. All rights reserved.
  */
 
 #include "wil6210_ethdev.h"
 #include "wil6210_nl60g.h"
+#include "wil6210_pmc.h"
 #include "txrx.h"
 #include "txrx_edma.h"
 #include "wmi.h"
@@ -890,6 +891,8 @@ int wil_priv_init(struct wil6210_priv *wil)
 
 	wil->amsdu_en = 1;
 	wil->fw_state = WIL_FW_STATE_DOWN;
+	wil->pmc_ext_host = false;
+	wil->pmc_ext_ring_order = WIL_PMC_EXT_RING_ORDER_DEF;
 
 	wil->mtu_max = TXRX_BUF_LEN_DEFAULT - WIL_MAX_MPDU_OVERHEAD;
 	wil->crash_on_fw_err = true;
@@ -1722,6 +1725,9 @@ static void wil_pre_fw_config(struct wil6210_priv *wil)
 						(CALIB_RESULT_SIGNATURE << 8));
 		wil_w(wil, RGF_USER_FW_CALIB_RESULT, (u32 __force)val);
 	}
+
+	/* configure PMC */
+	wil_pmc_ext_pre_config(wil);
 }
 
 
@@ -1982,6 +1988,13 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 		if (wil->ps_profile != WMI_PS_PROFILE_TYPE_DEFAULT)
 			wil_ps_update(wil, wil->ps_profile);
 
+		rc = wil_pmc_ext_post_config(wil);
+		if (rc) {
+			wil_err(wil, "pmc post config failed, rc %d\n",
+				rc);
+			rc = 0;
+		}
+
 		if (wil->platform_ops.notify) {
 			rc = wil->platform_ops.notify(wil->platform_handle,
 						      WIL_PLATFORM_EVT_FW_RDY);
@@ -2122,6 +2135,7 @@ int __wil_up(struct wil6210_priv *wil)
 		}
 	}
 
+	wil_info(wil, "pmc_ext_host: %d\n", wil->pmc_ext_host);
 	return 0;
 }
 

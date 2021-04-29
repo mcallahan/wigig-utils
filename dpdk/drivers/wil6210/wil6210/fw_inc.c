@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2014-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 /* Algorithmic part of the firmware download.
@@ -149,7 +149,7 @@ fw_handle_brd_file(struct wil6210_priv *wil, const void *data,
 	u32 max_num_ent, i, ent_size;
 
 	if (size <= offsetof(struct wil_fw_record_brd_file, brd_info)) {
-		wil_err(wil, "board record too short, size %zu\n", size);
+		wil_err_fw(wil, "board record too short, size %zu\n", size);
 		return -EINVAL;
 	}
 
@@ -157,7 +157,7 @@ fw_handle_brd_file(struct wil6210_priv *wil, const void *data,
 	max_num_ent = ent_size / sizeof(struct brd_info);
 
 	if (!max_num_ent) {
-		wil_err(wil, "brd info entries are missing\n");
+		wil_err_fw(wil, "brd info entries are missing\n");
 		return -EINVAL;
 	}
 
@@ -237,6 +237,23 @@ out_short:
 #endif
 
 static int
+fw_handle_pmc_ext(struct wil6210_priv *wil, const void *data, size_t size)
+{
+	const struct wil_fw_record_pmc_ext_info *rec = data;
+
+	if (size < sizeof(*rec)) {
+		wil_err_fw(wil, "pmc record too short: %zu\n", size);
+		/* let the FW load anyway */
+		return 0;
+	}
+	wil->pmc.pmc_ext_fw_info_address = rec->base_addr;
+	wil_dbg_fw(wil, "PMC EXT fw info address=0x%x\n",
+		   le32_to_cpu(wil->pmc.pmc_ext_fw_info_address));
+
+	return 0;
+}
+
+static int
 fw_handle_comment(struct wil6210_priv *wil, const void *data,
 		  size_t size)
 {
@@ -264,6 +281,10 @@ fw_handle_comment(struct wil6210_priv *wil, const void *data,
 		rc = fw_handle_concurrency(wil, data, size);
 		break;
 #endif
+	case WIL_PMC_EXT_INFO_MAGIC:
+		wil_dbg_fw(wil, "magic is WIL_PMC_EXT_INFO_MAGIC\n");
+		rc = fw_handle_pmc_ext(wil, data, size);
+		break;
 	default:
 		wil_hex_dump_fw("", DUMP_PREFIX_OFFSET, 16, 1,
 				data, size, true);
@@ -678,6 +699,9 @@ int wil_request_firmware(struct wil6210_priv *wil, const char *name,
 		if (rc < 0)
 			goto out;
 	}
+
+	if (test_bit(WMI_FW_CAPABILITY_PMC_LOG, wil->fw_capabilities))
+		wil->pmc_continuous_mode = true;
 
 out:
 	release_firmware(fw);

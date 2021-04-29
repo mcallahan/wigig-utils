@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2019-2020, Facebook, Inc. All rights reserved.
  */
 
@@ -816,6 +816,13 @@ struct pmc_ctx {
 	int			last_cmd_status;
 	int			num_descriptors;
 	int			descriptor_size;
+	/* continuous PMC support */
+	u32			sw_head_reg;
+	/* last known hw descriptor written by pmc */
+	u32			sw_head;
+	u32			sw_tail; /* last descriptor the pmc handled */
+	__le32			pmc_ext_fw_info_address;
+
 };
 
 struct wil_halp {
@@ -1085,6 +1092,9 @@ struct wil6210_priv {
 	bool keep_radio_on_during_sleep;
 
 	struct pmc_ctx pmc;
+	bool pmc_ext_host;
+	bool pmc_continuous_mode;
+	u16 pmc_ext_ring_order;
 
 	u8 p2p_dev_started;
 
@@ -1759,4 +1769,11 @@ uint16_t write_terra_slowpath(struct rte_mbuf **tx_pkts, const uint16_t nb_pkts)
 bool terra_port_qid_to_link(uint16_t port_id, uint16_t qid, uint16_t *link_id);
 bool terra_link_to_port_qid(uint16_t link_id, uint16_t *port_id, uint16_t *qid);
 
+int wmi_pmc_alloc(struct wil6210_priv *wil, u64 mem_base, u16 ring_size);
+int wmi_pmc_free(struct wil6210_priv *wil);
+
+int wmi_pmc_ext_start_host(struct wil6210_priv *wil, u64 mem_base,
+			   u16 ring_size, u16 payload_size);
+int wmi_pmc_ext_stop(struct wil6210_priv *wil);
+int wmi_pmc_ext_get_status(struct wil6210_priv *wil);
 #endif /* __WIL6210_H__ */

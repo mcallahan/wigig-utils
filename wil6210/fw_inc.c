@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2014-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 /* Algorithmic part of the firmware download.
@@ -234,6 +234,23 @@ out_short:
 }
 
 static int
+fw_handle_pmc_ext(struct wil6210_priv *wil, const void *data, size_t size)
+{
+	const struct wil_fw_record_pmc_ext_info *rec = data;
+
+	if (size < sizeof(*rec)) {
+		wil_err_fw(wil, "pmc record too short: %zu\n", size);
+		/* let the FW load anyway */
+		return 0;
+	}
+	wil->pmc.pmc_ext_fw_info_address = rec->base_addr;
+	wil_dbg_fw(wil, "PMC EXT fw info address=0x%x\n",
+		   le32_to_cpu(wil->pmc.pmc_ext_fw_info_address));
+
+	return 0;
+}
+
+static int
 fw_handle_comment(struct wil6210_priv *wil, const void *data,
 		  size_t size)
 {
@@ -258,6 +275,10 @@ fw_handle_comment(struct wil6210_priv *wil, const void *data,
 	case WIL_FW_CONCURRENCY_MAGIC:
 		wil_dbg_fw(wil, "magic is WIL_FW_CONCURRENCY_MAGIC\n");
 		rc = fw_handle_concurrency(wil, data, size);
+		break;
+	case WIL_PMC_EXT_INFO_MAGIC:
+		wil_dbg_fw(wil, "magic is WIL_PMC_EXT_INFO_MAGIC\n");
+		rc = fw_handle_pmc_ext(wil, data, size);
 		break;
 	default:
 		wil_hex_dump_fw("", DUMP_PREFIX_OFFSET, 16, 1,

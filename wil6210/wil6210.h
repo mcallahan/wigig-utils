@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __WIL6210_H__
@@ -822,6 +822,12 @@ struct pmc_ctx {
 	int			last_cmd_status;
 	int			num_descriptors;
 	int			descriptor_size;
+	/* continuous PMC support */
+	u32			sw_head_reg;
+	/* last known hw descriptor written by pmc */
+	u32			sw_head;
+	u32			sw_tail; /* last descriptor the pmc handled */
+	__le32			pmc_ext_fw_info_address;
 };
 
 struct wil_halp {
@@ -1081,6 +1087,8 @@ struct wil6210_priv {
 	bool keep_radio_on_during_sleep;
 
 	struct pmc_ctx pmc;
+	bool pmc_ext_host;
+	u16 pmc_ext_ring_order;
 
 	u8 p2p_dev_started;
 
@@ -1642,4 +1650,11 @@ void update_supported_bands(struct wil6210_priv *wil);
 void wil_clear_fw_log_addr(struct wil6210_priv *wil);
 int wmi_lo_power_calib_from_otp(struct wil6210_priv *wil, u8 index);
 
+int wmi_pmc_alloc(struct wil6210_priv *wil, u64 mem_base, u16 ring_size);
+int wmi_pmc_free(struct wil6210_priv *wil);
+
+int wmi_pmc_ext_start_host(struct wil6210_priv *wil, u64 mem_base,
+			   u16 ring_size, u16 payload_size);
+int wmi_pmc_ext_stop(struct wil6210_priv *wil);
+int wmi_pmc_ext_get_status(struct wil6210_priv *wil);
 #endif /* __WIL6210_H__ */

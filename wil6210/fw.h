@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2014,2016 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __WIL_FW_H__
@@ -110,6 +110,14 @@ struct wil_fw_record_brd_file { /* type == wil_fw_type_comment */
 	struct wil_fw_record_comment_hdr hdr;
 	__le32 version;
 	struct brd_info brd_info[0];
+} __packed;
+
+/* PMC info encoded inside a comment record */
+#define WIL_PMC_EXT_INFO_MAGIC (0xabcddcbe)
+struct wil_fw_record_pmc_ext_info { /* type == wil_fw_type_comment */
+	/* identifies PMC info record */
+	struct wil_fw_record_comment_hdr hdr;
+	__le32 base_addr; /* address where host should write pmc info */
 } __packed;
 
 /* perform action

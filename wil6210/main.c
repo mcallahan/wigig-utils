@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -17,6 +17,7 @@
 #include "wmi.h"
 #include "boot_loader.h"
 #include "slave_i.h"
+#include "pmc.h"
 
 #define WAIT_FOR_HALP_VOTE_MS 100
 #define WAIT_FOR_SCAN_ABORT_MS 1000
@@ -57,6 +58,15 @@ MODULE_PARM_DESC(rx_ring_overflow_thrsh,
 u8 preemptive_ring_switch = true;
 module_param(preemptive_ring_switch, byte, 0444);
 MODULE_PARM_DESC(preemptive_ring_switch, " enable FW preemptive ring switch. default - yes");
+
+bool pmc_ext_host;
+module_param(pmc_ext_host, bool, 0644);
+MODULE_PARM_DESC(pmc_ext_host,
+		 " enable pmc extended host mode (default: false/disabled)");
+
+unsigned short pmc_ext_ring_order = WIL_PMC_EXT_RING_ORDER_DEF;
+module_param(pmc_ext_ring_order, ushort, 0444);
+MODULE_PARM_DESC(pmc_ext_ring_order, "PMC ext descriptor numbers order");
 
 /* We allow allocation of more than 1 page buffers to support large packets.
  * It is suboptimal behavior performance wise in case MTU above page size.
@@ -814,6 +824,9 @@ int wil_priv_init(struct wil6210_priv *wil)
 
 	wil->amsdu_en = 1;
 	wil->fw_state = WIL_FW_STATE_DOWN;
+
+	wil->pmc_ext_host = pmc_ext_host;
+	wil->pmc_ext_ring_order = pmc_ext_ring_order;
 
 	return 0;
 
@@ -1670,6 +1683,9 @@ static void wil_pre_fw_config(struct wil6210_priv *wil)
 						(CALIB_RESULT_SIGNATURE << 8));
 		wil_w(wil, RGF_USER_FW_CALIB_RESULT, (u32 __force)val);
 	}
+
+	/* configure PMC */
+	wil_pmc_ext_pre_config(wil);
 }
 
 static int wil_restore_vifs(struct wil6210_priv *wil)
@@ -1942,6 +1958,13 @@ int wil_reset(struct wil6210_priv *wil, bool load_fw)
 
 			wmi_set_tof_tx_rx_offset(wil, ftm->tx_offset,
 						 ftm->rx_offset);
+		}
+
+		rc = wil_pmc_ext_post_config(wil);
+		if (rc) {
+			wil_err(wil, "pmc post config failed, rc %d\n",
+				rc);
+			rc = 0;
 		}
 
 		wil->tx_reserved_entries = ((drop_if_ring_full || ac_queues) ?

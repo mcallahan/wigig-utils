@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: ISC
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -12,6 +12,7 @@
 #include "wil6210.h"
 #include <linux/rtnetlink.h>
 #include <linux/pm_runtime.h>
+#include "pmc.h"
 
 int n_msi = 3;
 module_param(n_msi, int, 0444);
@@ -646,6 +647,7 @@ static void wil_pcie_remove(struct pci_dev *pdev)
 
 	wil6210_sysfs_remove(wil);
 	wil6210_debugfs_remove(wil);
+	wil_pmc_ext_stop(wil);
 	rtnl_lock();
 	wil_p2p_wdev_free(wil);
 	wil_remove_all_additional_vifs(wil);

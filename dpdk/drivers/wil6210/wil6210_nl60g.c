@@ -911,8 +911,10 @@ nl60g_handle_pmc_ext_data_command(struct nl60g_port *port, struct nl_msg *msg,
 	if (!num_bytes) {
 		rc = wil_pmc_ext_get_data(wil, NULL, 0, &bytes, &extra_data,
 					  NULL, NULL);
-		if (rc)
+		if (rc) {
+			rc = -nl_syserr2nlerr(rc);
 			goto out_free;
+		}
 
 		if (nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_LENGTH,
 				bytes)) {
@@ -945,8 +947,10 @@ nl60g_handle_pmc_ext_data_command(struct nl60g_port *port, struct nl_msg *msg,
 
 	rc = wil_pmc_ext_get_data(wil, nla_data(data_buffer), buffer_length,
 				  &bytes, &extra_data, &first_desc, &last_desc);
-	if (rc)
+	if (rc) {
+		rc = -nl_syserr2nlerr(rc);
 		goto out_free;
+	}
 
 	/* Update nl attr len to actual bytes copied*/
 	data_buffer->nla_len = nla_attr_size(bytes);
@@ -1046,8 +1050,10 @@ nl60g_pmc_handle_data_command_manual(struct nl60g_port *port,
 	rc = wil_pmc_ext_get_data_manual(wil, nla_data(data_buffer),
 					 buffer_length, &bytes, first_desc,
 					 &last_desc);
-	if (rc)
+	if (rc) {
+		rc = -nl_syserr2nlerr(rc);
 		goto out_free;
+	}
 
 	/* Update nl attr len to actual bytes copied*/
 	data_buffer->nla_len = nla_attr_size(bytes);
@@ -1216,22 +1222,28 @@ nl60g_handle_pmc_command(struct nl60g_port *port, struct nl_msg *msg,
 		num_descs = pmc_alloc_cmd->num_desc;
 		payload_size = pmc_alloc_cmd->payload_size;
 
-		if (wil->pmc_continuous_mode)
-			wil_pmc_ext_alloc(wil, num_descs, payload_size);
-		else
+		if (wil->pmc_continuous_mode) {
+			rc = wil_pmc_ext_alloc(wil, num_descs, payload_size);
+			if (rc)
+				rc = -nl_syserr2nlerr(rc);
+		} else {
 			wil_pmc_alloc(wil, num_descs, payload_size);
 
-		if (pmc->last_cmd_status)
-			rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+			if (pmc->last_cmd_status)
+				rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+		}
 		break;
 	case NL_60G_PMC_FREE:
-		if (wil->pmc_continuous_mode)
-			wil_pmc_ext_free(wil);
-		else
+		if (wil->pmc_continuous_mode) {
+			rc = wil_pmc_ext_free(wil);
+			if (rc)
+				rc = -nl_syserr2nlerr(rc);
+		} else {
 			wil_pmc_free(wil);
 
-		if (pmc->last_cmd_status)
-			rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+			if (pmc->last_cmd_status)
+				rc = -nl_syserr2nlerr(pmc->last_cmd_status);
+		}
 
 		wil_pmc_free_reader(port->pmc_reader_ctx);
 		port->pmc_reader_ctx = NULL;

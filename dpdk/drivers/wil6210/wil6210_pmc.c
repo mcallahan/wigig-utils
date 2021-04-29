@@ -290,6 +290,8 @@ void wil_pmc_free(struct wil6210_priv *wil)
 	struct pmc_ctx *pmc = &wil->pmc;
 	int rc1 = 0, rc = 0;
 
+	pmc->last_cmd_status = 0;
+
 	if (wil->pmc_continuous_mode) {
 		wil_err(wil, "legacy PMC is not supported\n");
 		pmc->last_cmd_status = -EINVAL;
@@ -354,26 +356,25 @@ int wil_pmc_ext_get_data(struct wil6210_priv *wil, char *buffer,
 			 uint32_t *last_desc)
 {
 	struct pmc_ctx *pmc = &wil->pmc;
-	int i;
+	int i, rc = 0;
 	uint32_t bytes_count = 0;
 
 	if (!wil->pmc_continuous_mode) {
 		wil_err(wil, "continuous PMC is not supported\n");
-		pmc->last_cmd_status = -EINVAL;
-		return pmc->last_cmd_status;
+		return -EINVAL;
 	}
 
 	mutex_lock(&pmc->lock);
 
 	if (!wil_is_pmc_allocated(pmc)) {
 		wil_err(wil, "error, pmc is not allocated!\n");
-		pmc->last_cmd_status = -EPERM;
+		rc = -EPERM;
 		goto out;
 	}
 
 	if (!pmc->sw_head_reg) {
 		wil_err(wil, "error, pmc is not ready!\n");
-		pmc->last_cmd_status = -EAGAIN;
+		rc = -EAGAIN;
 		goto out;
 	}
 
@@ -385,13 +386,13 @@ int wil_pmc_ext_get_data(struct wil6210_priv *wil, char *buffer,
 	if (pmc->sw_head >= pmc->num_descriptors) {
 		wil_err(wil, "error, sw head=%d out of range\n",
 			pmc->sw_head);
-		pmc->last_cmd_status = -EINVAL;
+		rc = -EINVAL;
 		goto out;
 	}
 
 	if (buffer_size && (!first_desc || !last_desc)) {
 		wil_err(wil, "first and last desc should not be null\n");
-		pmc->last_cmd_status = -EINVAL;
+		rc = -EINVAL;
 		goto out;
 	}
 
@@ -445,7 +446,7 @@ int wil_pmc_ext_get_data(struct wil6210_priv *wil, char *buffer,
 	}
 out:
 	mutex_unlock(&pmc->lock);
-	return (pmc->last_cmd_status < 0) ? pmc->last_cmd_status : 0;
+	return rc;
 }
 
 /* wil_pmc_ext_get_data_manual: reads PMC data from the ring descriptors into
@@ -456,35 +457,34 @@ int wil_pmc_ext_get_data_manual(struct wil6210_priv *wil, char *buffer,
 				uint32_t first_desc, uint32_t *last_desc)
 {
 	struct pmc_ctx *pmc = &wil->pmc;
-	int i;
+	int i, rc = 0;
 	uint32_t bytes_count = 0;
 	uint16_t length;
 
 	if (!wil->pmc_continuous_mode) {
 		wil_err(wil, "continuous PMC not supported\n");
-		pmc->last_cmd_status = -EINVAL;
-		return pmc->last_cmd_status;
+		return -EINVAL;
 	}
 
 	mutex_lock(&pmc->lock);
 
 	if (!wil_is_pmc_allocated(pmc)) {
 		wil_dbg_misc(wil, "error, pmc is not ready!\n");
-		pmc->last_cmd_status = -EPERM;
+		rc = -EPERM;
 		goto out;
 	}
 
 	if (!buffer_size || !buffer || !last_desc) {
 		wil_err(wil, "last desc or buffer should not be null, buffer_size=%d\n",
 			buffer_size);
-		pmc->last_cmd_status = -EINVAL;
+		rc = -EINVAL;
 		goto out;
 	}
 
 	if (first_desc >= pmc->num_descriptors) {
 		wil_err(wil, "error, first_desc=%d, number of descriptors=%d\n",
 			first_desc, pmc->num_descriptors);
-		pmc->last_cmd_status = -EINVAL;
+		rc = -EINVAL;
 		goto out;
 	}
 
@@ -519,7 +519,7 @@ int wil_pmc_ext_get_data_manual(struct wil6210_priv *wil, char *buffer,
 	*last_desc = i;
 out:
 	mutex_unlock(&pmc->lock);
-	return (pmc->last_cmd_status < 0) ? pmc->last_cmd_status : 0;
+	return rc;
 }
 
 /**
@@ -908,6 +908,10 @@ out:
 
 int wil_pmc_ext_free(struct wil6210_priv *wil)
 {
+	struct pmc_ctx *pmc = &wil->pmc;
+
+	pmc->last_cmd_status = 0;
+
 	wil_pmc_ext_stop(wil);
 
 	return 0;

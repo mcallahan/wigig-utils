@@ -558,8 +558,6 @@ int wil_pmc_ext_get_data(struct wil6210_priv *wil, u8 *buffer, u32 buffer_size,
 	if (buffer_size)
 		*first_desc = pmc->sw_tail;
 
-	if (pmc->sw_tail !=  pmc->sw_head)
-		printk("vt02 tail=%d head=%d\n", pmc->sw_tail, pmc->sw_head);
 	/* read the data into the buffer */
 	for (i = pmc->sw_tail; i != pmc->sw_head;) {
 		u16 length = le16_to_cpu(pmc->pring_va[i].dma.length);

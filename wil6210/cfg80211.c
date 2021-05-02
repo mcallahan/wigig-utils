@@ -4291,7 +4291,7 @@ wil_nl_60g_pmc_handle_data_command(struct wil6210_priv *wil,
 	struct sk_buff *skb;
 	u8 extra_data = 0;
 	u32 buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
-	int rc = 0;
+	int rc = 0, skb_len;
 	struct wil_nl_60g_pmc_get_data *pmc_get_data_cmd;
 	struct nlattr *data_buffer;
 
@@ -4340,6 +4340,7 @@ wil_nl_60g_pmc_handle_data_command(struct wil6210_priv *wil,
 
 	buffer_length = min_t(uint32_t, NL_60G_MAX_PMC_PAYLOAD,
 			      pmc_get_data_cmd->num_bytes);
+	skb_len = skb->len;
 	data_buffer = nla_reserve(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
 				  buffer_length);
 	if (!data_buffer) {
@@ -4352,8 +4353,12 @@ wil_nl_60g_pmc_handle_data_command(struct wil6210_priv *wil,
 	if (rc)
 		goto out_free;
 
-	/* Update nl attr len to actual bytes copied*/
-	data_buffer->nla_len = nla_attr_size(bytes);
+	if (bytes < buffer_length) {
+		/* Update nl attr len to actual bytes copied*/
+		data_buffer->nla_len = nla_attr_size(bytes);
+		/* Update skb length and tail pointer based on bytes copied */
+		skb_trim(skb, skb_len + nla_attr_size(bytes));
+	}
 
 	rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
 			 first_desc);
@@ -4403,7 +4408,7 @@ wil_nl_60g_pmc_handle_data_command_manual(struct wil6210_priv *wil,
 {
 	struct sk_buff *skb;
 	u32 buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
-	int rc = 0;
+	int rc = 0, skb_len;
 	struct wil_nl_60g_pmc_get_data_manual *pmc_get_data_cmd;
 	struct nlattr *data_buffer;
 
@@ -4435,6 +4440,7 @@ wil_nl_60g_pmc_handle_data_command_manual(struct wil6210_priv *wil,
 
 	buffer_length = min_t(uint32_t, NL_60G_MAX_PMC_PAYLOAD,
 			      pmc_get_data_cmd->num_bytes);
+	skb_len = skb->len;
 	data_buffer = nla_reserve(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
 				  buffer_length);
 	if (!data_buffer) {
@@ -4450,8 +4456,12 @@ wil_nl_60g_pmc_handle_data_command_manual(struct wil6210_priv *wil,
 	if (rc)
 		goto out_free;
 
-	/* Update nl attr len to actual bytes copied*/
-	data_buffer->nla_len = nla_attr_size(bytes);
+	if (bytes < buffer_length) {
+		/* Update nl attr len to actual bytes copied*/
+		data_buffer->nla_len = nla_attr_size(bytes);
+		/* Update skb length and tail pointer based on bytes copied */
+		skb_trim(skb, skb_len + nla_attr_size(bytes));
+	}
 
 	rc = nla_put_u32(skb, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
 			 first_desc);

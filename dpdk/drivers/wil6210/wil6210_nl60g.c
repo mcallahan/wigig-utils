@@ -889,9 +889,10 @@ nl60g_handle_pmc_ext_data_command(struct nl60g_port *port, struct nl_msg *msg,
 	bool extra_data = false;
 	uint32_t buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
 	uint32_t num_bytes;
-	int rc = 0;
+	int rc = 0, nl_msg_len;
 	struct nl60g_pmc_get_data *pmc_get_data_cmd;
 	struct nlattr *vendor_data, *data_buffer;
+	struct nlmsghdr *nlh;
 
 	if (len < sizeof(struct nl60g_pmc_get_data))
 		return -NLE_INVAL;
@@ -937,6 +938,8 @@ nl60g_handle_pmc_ext_data_command(struct nl60g_port *port, struct nl_msg *msg,
 	}
 
 	buffer_length = min_t(uint32_t, NL60G_MAX_PMC_PAYLOAD, num_bytes);
+	nlh = nlmsg_hdr(creply);
+	nl_msg_len = nlh->nlmsg_len;
 	data_buffer = nla_reserve(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
 				  buffer_length);
 	if (!data_buffer) {
@@ -952,8 +955,12 @@ nl60g_handle_pmc_ext_data_command(struct nl60g_port *port, struct nl_msg *msg,
 		goto out_free;
 	}
 
-	/* Update nl attr len to actual bytes copied*/
-	data_buffer->nla_len = nla_attr_size(bytes);
+	if (bytes < buffer_length) {
+		/* Update nl attr len to actual bytes copied*/
+		data_buffer->nla_len = nla_attr_size(bytes);
+		/* Update nlmsg length based on actual bytes copied */
+		nlh->nlmsg_len = NLMSG_ALIGN(nl_msg_len) + nla_total_size(bytes);
+	}
 
 	rc = nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
 			 first_desc);
@@ -1005,9 +1012,10 @@ nl60g_pmc_handle_data_command_manual(struct nl60g_port *port,
 	struct nl_msg *creply = NULL;
 	uint32_t buffer_length, bytes = 0, first_desc = 0, last_desc = 0;
 	uint32_t num_bytes;
-	int rc = 0;
+	int rc = 0, nl_msg_len;
 	struct nl60g_pmc_get_data_manual *pmc_get_data_cmd;
 	struct nlattr *vendor_data, *data_buffer;
+	struct nlmsghdr *nlh;
 
 	if (len < sizeof(struct nl60g_pmc_get_data_manual))
 		return -NLE_INVAL;
@@ -1037,6 +1045,8 @@ nl60g_pmc_handle_data_command_manual(struct nl60g_port *port,
 	}
 
 	buffer_length = min_t(uint32_t, NL60G_MAX_PMC_PAYLOAD, num_bytes);
+	nlh = nlmsg_hdr(creply);
+	nl_msg_len = nlh->nlmsg_len;
 	data_buffer = nla_reserve(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA,
 				  buffer_length);
 	if (!data_buffer) {
@@ -1055,8 +1065,12 @@ nl60g_pmc_handle_data_command_manual(struct nl60g_port *port,
 		goto out_free;
 	}
 
-	/* Update nl attr len to actual bytes copied*/
-	data_buffer->nla_len = nla_attr_size(bytes);
+	if (bytes < buffer_length) {
+		/* Update nl attr len to actual bytes copied*/
+		data_buffer->nla_len = nla_attr_size(bytes);
+		/* Update nlmsg length based on actual bytes copied */
+		nlh->nlmsg_len = NLMSG_ALIGN(nl_msg_len) + nla_total_size(bytes);
+	}
 
 	rc = nla_put_u32(creply, QCA_WLAN_VENDOR_ATTR_PMC_DATA_FIRST_DESC,
 			 first_desc);

@@ -647,7 +647,6 @@ static irqreturn_t wil6210_irq_misc_thread(int irq, void *cookie)
 
 	if (isr & ISR_MISC_FW_ERROR) {
 		wil->recovery_state = fw_recovery_pending;
-		//wil_fw_core_dump(wil);
 		wil_notify_fw_error(wil);
 		isr &= ~ISR_MISC_FW_ERROR;
 		if (wil->platform_ops.notify) {

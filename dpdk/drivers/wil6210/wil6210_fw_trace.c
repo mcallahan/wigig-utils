@@ -1760,37 +1760,8 @@ close_pipe:
 void
 wil_fw_not_ready_logs(struct wil6210_priv *wil)
 {
-	int rc;
-	void *data;
-	u32 write_ptr;
-
-	wil_info(
-		wil,
-		"Attempting to get firmware logs since firmware was not ready\n");
-	rc = wil_mem_access_lock(wil);
-	if (rc) {
-		wil_err(wil,
-			"Memory access error, not fetching firmware logs\n");
-		return;
-	}
-
-	/* copy log header's write pointer and check if it is a sensible value */
-	data = (void *__force)wil->csr + wil->fw_log_offset;
-	wil_memcpy_fromio_32((void *)&write_ptr,
-			     (const void __iomem *__force)data,
-			     sizeof(write_ptr));
-	wil_mem_access_unlock(wil);
-
-	/* log should not be empty, write_ptr should not be too large already */
-	if (write_ptr == 0 || write_ptr > wil->fw_log_buf_entries * 2) {
-		wil_err(wil,
-			"Write pointer error, not fetching firmware logs\n");
-		return;
-	}
-
-	wil_info(wil, "Creating firmware core with just firmware logs\n");
-	wil_fw_copy_crash_dump(wil, wil_fw_log_size(wil->fw_log_buf_entries),
-			       wil->fw_log_offset);
+	wil_info(wil, "Creating firmware core including firmware logs\n");
+	wil_fw_copy_crash_dump(wil);
 }
 
 void

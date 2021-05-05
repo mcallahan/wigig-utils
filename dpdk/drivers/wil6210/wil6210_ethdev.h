@@ -1641,9 +1641,7 @@ int wmi_resume(struct wil6210_priv *wil);
 int wmi_suspend(struct wil6210_priv *wil);
 bool wil_is_tx_idle(struct wil6210_priv *wil);
 
-int wil_fw_copy_crash_dump(struct wil6210_priv *wil, size_t log_size,
-	size_t log_offset);
-void wil_fw_core_dump(struct wil6210_priv *wil);
+int wil_fw_copy_crash_dump(struct wil6210_priv *wil);
 
 int wil_fw_print_dump_logs(struct wil6210_priv *wil, char *fw_core_dump_path,
 	bool only_logs);

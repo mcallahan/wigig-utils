@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: ISC */
 /*
  * Copyright (c) 2012-2017 Qualcomm Atheros, Inc.
- * Copyright (c) 2018-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2018-2021, The Linux Foundation. All rights reserved.
  */
 
 #ifndef __WIL6210_H__
@@ -1481,9 +1481,6 @@ bool wil_is_wmi_idle(struct wil6210_priv *wil);
 int wmi_resume(struct wil6210_priv *wil);
 int wmi_suspend(struct wil6210_priv *wil);
 bool wil_is_tx_idle(struct wil6210_priv *wil);
-
-int wil_fw_copy_crash_dump(struct wil6210_priv *wil, void *dest, u32 size);
-void wil_fw_core_dump(struct wil6210_priv *wil);
 
 void wil_halp_vote(struct wil6210_priv *wil);
 void wil_halp_unvote(struct wil6210_priv *wil);

@@ -169,10 +169,12 @@ int wil_fw_copy_crash_dump(struct wil6210_priv *wil)
 	wil_info(wil, "Firmware core dumped, size %d bytes, location %s\n",
 		 dump_size, filepath);
 
-	rc = wil_fw_print_dump_logs(wil, filepath, 0);
-	if (rc) {
-		wil_err(wil, "Unable to print firmware trace to file\n");
-		return rc;
+	if (!wil->pmc_continuous_mode) {
+		rc = wil_fw_print_dump_logs(wil, filepath, 0);
+		if (rc) {
+			wil_err(wil, "Unable to print firmware trace to file\n");
+			return rc;
+		}
 	}
 
 	return 0;

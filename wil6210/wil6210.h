@@ -794,6 +794,11 @@ struct wil_sta_info {
 	u8 aid; /* 1-254; 0 if unknown/not reported */
 	bool fst_link_loss;
 	bool net_queue_stopped; /* used when q_per_sta enabled */
+
+	/* amsdu frame related info to check if the frame is valid */
+	int amsdu_drop_sn;
+	int amsdu_drop_tid;
+	u8 amsdu_drop;
 };
 
 enum {
@@ -1648,6 +1653,7 @@ int wil_spec2wmi_ch(u8 spec_ch, u8 *wmi_ch);
 void update_supported_bands(struct wil6210_priv *wil);
 
 void wil_clear_fw_log_addr(struct wil6210_priv *wil);
+void wil_sta_info_amsdu_init(struct wil_sta_info *sta);
 int wmi_lo_power_calib_from_otp(struct wil6210_priv *wil, u8 index);
 
 int wmi_pmc_alloc(struct wil6210_priv *wil, u64 mem_base, u16 ring_size);

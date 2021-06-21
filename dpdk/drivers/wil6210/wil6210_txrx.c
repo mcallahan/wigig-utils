@@ -272,7 +272,7 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	bool mcast = (ring_index == vif->bcast_ring);
 	uint len = rte_pktmbuf_data_len(skb);
 
-	if (pkt_len == 0) {
+	if (unlikely(pkt_len == 0)) {
 		if (stats)
 			stats->wil_tx_zero_len_pkt_drops++;
 		wil_dbg_txrx(wil, "Tx[%2d] tx packet length is 0, dropping packet\n",
@@ -330,6 +330,14 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	frag = skb->next;
 	for (; f < nr_frags; f++) {
 		int len = rte_pktmbuf_data_len(frag);
+
+		if (unlikely(!len)) {
+			if (stats)
+				stats->wil_tx_zero_len_pkt_drops++;
+			wil_dbg_txrx(wil, "Tx[%2d] tx frag length is 0, dropping frag = %d nr_frags = %d\n",
+				     ring_index, f, nr_frags);
+			goto dma_error;
+		}
 
 		*_d = *d;
 		wil_dbg_txrx(wil, "Tx[%2d] desc[%4d]\n", ring_index, i);

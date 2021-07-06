@@ -469,9 +469,14 @@ void wil_slave_tdm_connect(struct wil6210_vif *vif,
 		return;
 	}
 
-	wil_dbg_misc(wil, "TDM connect, CID %d MAC %pM link rx %d tx %d\n",
-		     evt->cid, evt->mac_addr,
-		     evt->link_id_rx, evt->link_id_tx);
+	wil_info(wil, "TDM connect, CID %d MAC %pM link rx %d tx %d flags 0x%x\n",
+		 evt->cid, evt->mac_addr, evt->link_id_rx,
+		 evt->link_id_tx, evt->flags);
+
+	if (evt->flags & WMI_TDM_CONNECT_FLAG_IS_SECURED) {
+		vif->privacy = 1;
+		vif->link_key_set = false;
+	}
 
 	if (test_bit(wil_status_resetting, wil->status) ||
 	    !test_bit(wil_status_fwready, wil->status)) {
@@ -599,6 +604,9 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 
 	/* statistics */
 	memset(&sta->stats, 0, sizeof(sta->stats));
+
+	vif->link_key_set = false;
+	vif->privacy = 0;
 
 	mutex_unlock(&wil->mutex);
 }

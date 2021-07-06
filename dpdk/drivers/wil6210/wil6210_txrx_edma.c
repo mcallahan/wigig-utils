@@ -1190,6 +1190,7 @@ uint16_t wil_rx_burst(struct wil6210_priv *wil, struct rte_mbuf **rx_pkts,
 	unsigned int nb_done;
 	u32 swhead;
 	int i;
+	struct ether_hdr *eth_hdr;
 
 #ifdef DEBUG_LATENCY
 	u64 start = rte_get_timer_cycles() * wil->nano_per_cycle;
@@ -1244,6 +1245,20 @@ uint16_t wil_rx_burst(struct wil6210_priv *wil, struct rte_mbuf **rx_pkts,
 				/* Get CID parameters */
 				wil->txrx_ops.get_netif_rx_params(mbuf, &cid, &security);
 				stats = &wil->sta[cid].stats;
+
+				/* If connection is secured and link key is not set, drop plaintext  */
+				if (vif->privacy && !vif->link_key_set) {
+					eth_hdr = rte_pktmbuf_mtod(mbuf, struct ether_hdr *);
+					if (cpu_to_be16(eth_hdr->ether_type) != ETH_P_PAE) {
+						if (stats)
+							stats->wil_rx_plain_pkts_dropped++;
+						wil_dbg_txrx(wil,
+							     "Rx drop plaintext frame with %d bytes in secure network\n",
+							     mbuf->pkt_len);
+						rte_pktmbuf_free(mbuf);
+						continue;
+					}
+				}
 
 				/* check errors reported by HW and update statistics */
 				if (unlikely(wil->txrx_ops.rx_error_check(wil, mbuf, stats))) {

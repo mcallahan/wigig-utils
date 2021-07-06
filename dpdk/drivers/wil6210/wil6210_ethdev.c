@@ -91,6 +91,10 @@ static const struct rte_wil6210_xstats_name_off rte_stats_ul_strings[] = {
 	  offsetof(struct wil_net_stats, wil_tx_ring_full) },
 	{ "wil_tx_zero_len_pkt_drops",
 	  offsetof(struct wil_net_stats, wil_tx_zero_len_pkt_drops) },
+	{ "wil_tx_plain_pkts_dropped",
+	  offsetof(struct wil_net_stats, wil_tx_plain_pkts_dropped) },
+	{ "wil_rx_plain_pkts_dropped",
+	  offsetof(struct wil_net_stats, wil_rx_plain_pkts_dropped) },
 	/* only add unsigned longs here */
 };
 

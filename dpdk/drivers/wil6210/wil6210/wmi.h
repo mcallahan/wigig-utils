@@ -4199,13 +4199,23 @@ struct wmi_tdm_set_cn_pcie_params_event {
 	u8 reserved[3];
 } __packed;
 
+
+/*
+ * WMI_TDM_CONNECT_EVENT flags */
+enum wmi_tdm_connect_flags_type_e {
+	WMI_TDM_CONNECT_FLAG_IS_SECURED	= 0x01,
+};
+
 /* WMI_TDM_CONNECT_EVENTID */
 struct wmi_tdm_connect_event {
 	u8 mac_addr[6];
 	u8 cid;
 	u8 link_id_tx;
 	u8 link_id_rx;
-	u8 reserved[3];
+	/* bitmask of CONNECT event flags
+	 * (wmi_tdm_connect_flags_type_e) */
+	u8 flags;
+	u8 reserved[2];
 } __packed;
 
 /* WMI_TDM_DISCONNECT_EVENTID */

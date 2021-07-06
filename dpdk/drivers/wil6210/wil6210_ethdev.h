@@ -601,6 +601,7 @@ struct wil_net_stats {
 	unsigned long	wil_tx_ring_calls;
 	unsigned long	wil_tx_ring_full;
 	unsigned long	wil_tx_zero_len_pkt_drops;
+	unsigned long	wil_tx_plain_pkts_dropped;
 	atomic_t	tx_pend_bytes;
 	atomic_t	tx_pend_packets;
 	u64 tx_pend_packets_acc; /* accumulate tx_pend_packets to make it monotonic */
@@ -613,6 +614,7 @@ struct wil_net_stats {
 	unsigned long	rx_key_error; /* eDMA specific */
 	unsigned long	rx_amsdu_error; /* eDMA specific */
 	unsigned long	rx_csum_err;
+	unsigned long	wil_rx_plain_pkts_dropped;
 	u16 last_mcs_rx;
 	u64 rx_per_mcs[WIL_MCS_MAX + 1];
 	u32 ft_roams; /* relevant in STA mode */
@@ -894,6 +896,7 @@ struct wil6210_vif {
 	u8 mid;
 	DECLARE_BITMAP(status, wil_vif_status_last);
 	u32 privacy; /* secure connection? */
+	bool link_key_set; /* flag indicating key is set for the link */
 	u16 channel; /* relevant in AP mode */
 	u8 hidden_ssid; /* relevant in AP mode */
 	u32 ap_isolate; /* no intra-BSS communication */

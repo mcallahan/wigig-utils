@@ -271,6 +271,7 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	int used;
 	bool mcast = (ring_index == vif->bcast_ring);
 	uint len = rte_pktmbuf_data_len(skb);
+	struct ether_hdr *eth_hdr;
 
 	if (unlikely(pkt_len == 0)) {
 		if (stats)
@@ -278,6 +279,18 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 		wil_dbg_txrx(wil, "Tx[%2d] tx packet length is 0, dropping packet\n",
 			ring_index);
 		return -EINVAL;
+	}
+
+	/* If connection is secured and link key is not set, drop plaintext  */
+	if (vif->privacy && !vif->link_key_set) {
+		eth_hdr = rte_pktmbuf_mtod(skb, struct ether_hdr *);
+		if (cpu_to_be16(eth_hdr->ether_type) != ETH_P_PAE) {
+			if (stats)
+				stats->wil_tx_plain_pkts_dropped++;
+			wil_dbg_txrx(wil, "Tx drop plaintext frame %d bytes\n",
+				     pkt_len);
+			return -EINVAL;
+		}
 	}
 
 	nr_frags = skb->nb_segs - 1;
@@ -293,9 +306,8 @@ static int __wil_tx_ring(struct wil6210_priv *wil, struct wil6210_vif *vif,
 	if (unlikely(avail < 1 + nr_frags)) {
 		if (stats)
 			stats->wil_tx_ring_full++;
-		wil_dbg_txrx(wil,
-				    "Tx ring[%2d] full. No space for %d fragments\n",
-				    ring_index, 1 + nr_frags);
+		wil_dbg_txrx(wil, "Tx ring[%2d] full. No space for %d fragments\n",
+			     ring_index, 1 + nr_frags);
 		return -ENOMEM;
 	}
 	_d = &ring->va[i].tx.legacy;
